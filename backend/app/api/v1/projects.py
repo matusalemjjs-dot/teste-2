@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import DB, CurrentProfile
 from app.core.config import Settings, get_settings
+from app.core.ratelimit import rate_limit_expensive
 from app.models.enums import ProjectStatus
 from app.schemas import (
     CandidateList,
@@ -31,9 +32,11 @@ from app.services import projects as svc
 from app.services import uploads
 from app.services.media_probe import ProbeUnavailable
 from app.services.queue import QueueUnavailable
+from app.services.quotas import QuotaExceeded
 from app.services.storage import Storage, StorageError, get_storage
 
 router = APIRouter(prefix="/projects", tags=["projetos"])
+EXPENSIVE = [Depends(rate_limit_expensive)]  # limite mais baixo para operações que geram custo
 
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "Projeto não encontrado"}}
 UPLOAD_ERRORS = {**NOT_FOUND, 409: {"model": UploadErrorResponse}, 422: {"model": UploadErrorResponse},
@@ -66,9 +69,22 @@ def _busy() -> HTTPException:
     return HTTPException(status.HTTP_409_CONFLICT, "Outra operação está em andamento neste projeto. Aguarde.")
 
 
-@router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED, summary="Criar projeto")
-def create_project(body: ProjectCreate, db: DB, profile: CurrentProfile) -> ProjectOut:
-    return ProjectOut.model_validate(svc.create_project(db, profile.id, body.title))
+def _quota_error(exc: QuotaExceeded) -> JSONResponse:
+    return JSONResponse(status_code=exc.http_status, content={"detail": exc.message, "code": exc.code})
+
+
+QUOTA_ERRORS = {402: {"model": UploadErrorResponse, "description": "Cota mensal de minutos excedida"},
+                403: {"model": UploadErrorResponse, "description": "Conta suspensa"},
+                429: {"model": UploadErrorResponse, "description": "Limite de projetos/requisições"}}
+
+
+@router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED, summary="Criar projeto",
+             responses=QUOTA_ERRORS)
+def create_project(body: ProjectCreate, db: DB, profile: CurrentProfile):
+    try:
+        return ProjectOut.model_validate(svc.create_project(db, profile.id, body.title))
+    except QuotaExceeded as exc:
+        return _quota_error(exc)
 
 
 @router.get("", response_model=ProjectList, summary="Listar meus projetos")
@@ -139,7 +155,8 @@ def get_clips(project_id: uuid.UUID, db: DB, profile: CurrentProfile, storage: S
                                             for c in clips_svc.list_project_clips(db, p.id)])
 
 
-@router.post("/{project_id}/upload-url", response_model=UploadUrlOut, responses=UPLOAD_ERRORS,
+@router.post("/{project_id}/upload-url", dependencies=EXPENSIVE,
+             response_model=UploadUrlOut, responses=UPLOAD_ERRORS,
              summary="Obter URL assinada para enviar o vídeo",
              description="Retorna um POST pré-assinado (multipart/form-data). Envie todos os `fields` e, por "
                          "último, o arquivo no campo `file`. Depois chame `finalize-upload`.")
@@ -160,7 +177,8 @@ def upload_url(project_id: uuid.UUID, body: UploadUrlRequest, db: DB, profile: C
                         expires_at=ticket.expires_at, max_bytes=ticket.max_bytes)
 
 
-@router.post("/{project_id}/finalize-upload", response_model=FinalizeUploadOut, responses=UPLOAD_ERRORS,
+@router.post("/{project_id}/finalize-upload", dependencies=EXPENSIVE,
+             response_model=FinalizeUploadOut, responses=UPLOAD_ERRORS,
              summary="Confirmar o envio e validar o vídeo",
              description="Valida tipo real, integridade e duração com FFprobe. Idempotente: repetir a chamada "
                          "após o sucesso devolve o mesmo resultado (`already_finalized=true`).")
@@ -181,8 +199,10 @@ def finalize_upload(project_id: uuid.UUID, db: DB, profile: CurrentProfile, sett
                              already_finalized=result.already_finalized)
 
 
-@router.post("/{project_id}/process", response_model=ProcessOut, status_code=status.HTTP_202_ACCEPTED,
-             responses={**UPLOAD_ERRORS, 200: {"model": ProcessOut, "description": "Processamento já existente"}},
+@router.post("/{project_id}/process", dependencies=EXPENSIVE,
+             response_model=ProcessOut, status_code=status.HTTP_202_ACCEPTED,
+             responses={**UPLOAD_ERRORS, **QUOTA_ERRORS,
+                        200: {"model": ProcessOut, "description": "Processamento já existente"}},
              summary="Iniciar o processamento",
              description="Idempotente: repetir a chamada com processamento em fila, em andamento ou concluído "
                          "devolve o mesmo job (HTTP 200, `created=false`). Após uma falha, cria nova tentativa.")
@@ -191,6 +211,8 @@ def process_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile, sett
         result = jobs_svc.request_processing(db, settings, profile.id, project_id)
     except jobs_svc.ProcessRejected as exc:
         return JSONResponse(status_code=exc.http_status, content={"detail": exc.message, "code": exc.code})
+    except QuotaExceeded as exc:
+        return _quota_error(exc)
     except jobs_svc.Busy as exc:
         raise _busy() from exc
     except QueueUnavailable as exc:

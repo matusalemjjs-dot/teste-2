@@ -106,7 +106,8 @@ def render_one(ctx: JobContext, clip_id: uuid.UUID, *, layout: str, subtitles: b
             db.execute(delete(MediaAsset).where(MediaAsset.id.in_(old_ids)))
         db.execute(insert(UsageLedger).values(
             owner_id=ctx.owner_id, project_id=ctx.project_id, job_id=ctx.job_id, kind="render_seconds",
-            quantity=Decimal(f"{real_dur:.3f}"), estimated_cost_usd=0,
+            quantity=Decimal(f"{real_dur:.3f}"),
+            estimated_cost_usd=Decimal(f"{real_dur / 60 * s.cost_per_render_minute_usd:.6f}"),
             idempotency_key=f"render:{clip_id}:v{version}").on_conflict_do_nothing(index_elements=["idempotency_key"]))
         db.commit()
     for key in old_keys:

@@ -104,6 +104,19 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Tempo de renderização com o preset padrão (`veryfast`) para cortes de 60 s — não medido sistematicamente
       (amostra: 20 s de vídeo 720p → 3,6 s em `center_crop`, 8,3 s em `blur_background`)
 
+## Etapa 7
+- [x] Minutos debitados só no sucesso; uma vez por projeto (repetição e reexecução não cobram de novo)
+- [x] Reserva de projetos em fila/processando conta na cota; excedeu → 402 sem enfileirar nada
+- [x] Trava da assinatura serializa pedidos simultâneos (teste determinístico; falha se a trava for removida)
+- [x] Cota de um usuário não afeta outro; novo mês libera a cota
+- [x] Projetos por dia não podem ser burlados excluindo projetos; janela de 24 h
+- [x] Conta suspensa → 403; cotas desativáveis por configuração
+- [x] Custo interno estimado registrado
+- [x] Rate limit geral e para operações caras, por usuário, com `Retry-After`; janela reinicia
+- [x] Redis indisponível não derruba a API (fail-open); `/health` fora do limite
+- [ ] Limite por IP para requisições não autenticadas — não implementado (tokens JWT, sem senha na API)
+- [ ] Valores de custo por minuto reais — dependem da sua infraestrutura (padrão 0)
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível
@@ -113,5 +126,5 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
       modelo real pendente de chave
 - [x] Corte reproduzível e baixável em MP4
 - [x] Falhas registradas sem travar o sistema
-- [x] Requisição repetida não duplica processamento (cobrança: Etapa 7)
+- [x] Requisição repetida não duplica processamento nem cobrança
 - [ ] Testes E2E Playwright (Etapa 8)

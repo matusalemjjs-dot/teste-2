@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import DB, CurrentProfile
 from app.core.config import Settings, get_settings
+from app.core.ratelimit import rate_limit_expensive
 from app.models.enums import ClipStatus
 from app.schemas import DownloadUrlOut, DownloadUrlRequest, ErrorResponse, JobOut, RegenerateOut, RegenerateRequest
 from app.services import audit
@@ -15,6 +16,7 @@ from app.services.queue import QueueUnavailable
 from app.services.storage import Storage, get_storage
 
 router = APIRouter(prefix="/clips", tags=["cortes"])
+EXPENSIVE = [Depends(rate_limit_expensive)]  # limite mais baixo para operações que geram custo
 StorageDep = Annotated[Storage, Depends(get_storage)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "Corte não encontrado"}}
@@ -32,7 +34,8 @@ def get_clip(clip_id: uuid.UUID, db: DB, profile: CurrentProfile, storage: Stora
     return svc.to_out(db, _load(db, profile, clip_id), storage, settings)
 
 
-@router.post("/{clip_id}/download-url", response_model=DownloadUrlOut,
+@router.post("/{clip_id}/download-url", dependencies=EXPENSIVE,
+             response_model=DownloadUrlOut,
              responses={**NOT_FOUND, 409: {"model": ErrorResponse}},
              summary="URL temporária para baixar ou reproduzir o corte",
              description="Emitida somente para o dono do corte e somente com o corte pronto. Expira em "
@@ -53,7 +56,8 @@ def download_url(clip_id: uuid.UUID, db: DB, profile: CurrentProfile, storage: S
     return DownloadUrlOut(url=url, expires_at=expires_at, filename=name)
 
 
-@router.post("/{clip_id}/regenerate", response_model=RegenerateOut, status_code=status.HTTP_202_ACCEPTED,
+@router.post("/{clip_id}/regenerate", dependencies=EXPENSIVE,
+             response_model=RegenerateOut, status_code=status.HTTP_202_ACCEPTED,
              responses={**NOT_FOUND, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
              summary="Regenerar o corte (layout e legendas)",
              description="Idempotente: com uma regeneração do mesmo corte em andamento, devolve o job existente "

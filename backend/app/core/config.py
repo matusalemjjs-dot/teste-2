@@ -103,6 +103,17 @@ class Settings(BaseSettings):
     thumbnail_width: int = 540
     download_url_expires_seconds: int = 300
 
+    # Consumo, cotas e limite de requisições
+    quotas_enabled: bool = True
+    plan_free_monthly_minutes: int = 60  # aplicado a novas assinaturas
+    plan_free_projects_per_day: int = 10
+    cost_per_processed_minute_usd: float = 0.0  # custo interno estimado (infra); LLM é medido por tokens
+    cost_per_render_minute_usd: float = 0.0
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_general: int = 120  # requisições por usuário por janela
+    rate_limit_expensive: int = 20  # upload-url, finalize, process, regenerate, download-url
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024

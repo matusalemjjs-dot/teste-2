@@ -34,7 +34,10 @@ def get_current_profile(user: Annotated[AuthUser, Depends(get_auth_user)], db: D
     profile = db.get(Profile, user.id)
     if profile is None:
         db.execute(insert(Profile).values(id=user.id, email=user.email).on_conflict_do_nothing())
-        db.execute(insert(Subscription).values(owner_id=user.id).on_conflict_do_nothing())
+        settings = get_settings()
+        db.execute(insert(Subscription).values(
+            owner_id=user.id, monthly_minutes_quota=settings.plan_free_monthly_minutes,
+            max_projects_per_day=settings.plan_free_projects_per_day).on_conflict_do_nothing())
         db.commit()
         profile = db.get(Profile, user.id)
     elif user.email and profile.email != user.email:

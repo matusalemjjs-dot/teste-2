@@ -4,7 +4,7 @@ Plataforma SaaS que transforma vídeos longos em cortes curtos usando transcriç
 processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADMAP.md](docs/ROADMAP.md) e
 [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-> **Estado atual: Etapa 6 (renderização e galeria via API).** O pipeline completo funciona: upload, validação,
+> **Estado atual: Etapa 7 (consumo, cotas e limite de requisições).** O pipeline completo funciona: upload, validação,
 > fila, transcrição, análise por IA, renderização vertical com legendas, miniaturas, download e regeneração.
 > Sem `ANTHROPIC_API_KEY`, a análise falha com `analysis_misconfigured` e nenhum corte é gerado.
 > Ainda não há frontend (Etapa 8). Nada neste repositório simula resultados de processamento.
@@ -35,7 +35,7 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Saúde da API e do banco |
-| GET | `/api/v1/me` | Usuário autenticado (cria o perfil no primeiro acesso) |
+| GET | `/api/v1/me` | Usuário autenticado e consumo do mês (cria perfil e assinatura no primeiro acesso) |
 | POST | `/api/v1/projects` | Criar projeto (`title`, `rights_confirmed: true`) |
 | GET | `/api/v1/projects` | Listar (`limit`, `offset`, `status`) |
 | GET | `/api/v1/projects/{id}` | Consultar |
@@ -148,6 +148,28 @@ US$ 0,30–0,80 por hora de vídeo com 200 janelas — **estimativa, não medida
 - **Downloads**: URLs assinadas emitidas só para o dono e só com o corte pronto; expiram em
   `DOWNLOAD_URL_EXPIRES_SECONDS` (padrão 5 min). Cada emissão gera um evento de auditoria.
 - Projeto com regeneração pendente não pode ser excluído (409) até terminar.
+
+### Consumo, cotas e limite de requisições
+
+- **Minutos processados**: debitados em `usage_ledger` (`processed_seconds`) somente quando o projeto conclui,
+  com chave única por projeto — falhas não são cobradas e repetições não cobram de novo.
+- **Cota mensal** (`subscriptions.monthly_minutes_quota`, mês civil em UTC): ao pedir processamento, conta-se o
+  consumo do mês + projetos em fila/processando + o vídeo atual. Excedeu → **402** `quota_exceeded`. A linha
+  da assinatura é travada durante a verificação para que pedidos simultâneos não estourem a cota.
+- **Projetos por dia** (`max_projects_per_day`, últimas 24 h): contados pela auditoria, então excluir projetos
+  não libera a cota. Excedeu → **429** `project_limit`.
+- **Conta suspensa** (`subscriptions.status != active`) → **403** `subscription_inactive`.
+- **Limite de requisições** por usuário (Redis, janela fixa): geral (`RATE_LIMIT_GENERAL`) e para operações que
+  geram custo (`RATE_LIMIT_EXPENSIVE`). Excedeu → **429** com `Retry-After`. Se o Redis cair, o limite é
+  ignorado (registrado em log) e as cotas no banco continuam valendo.
+- **Custos internos estimados** em `usage_ledger.estimated_cost_usd`: LLM por tokens reais × preço configurado;
+  processamento e renderização por minuto (`COST_PER_*_MINUTE_USD`, padrão 0 — defina com seus custos reais).
+- `GET /me` → `usage`: `quota_minutes`, `used_minutes`, `reserved_minutes`, `remaining_minutes`,
+  `projects_last_24h`, `projects_per_day`.
+
+Os valores de plano em `PLAN_FREE_*` valem para novas assinaturas; para mudar a cota de um usuário existente,
+altere a linha em `subscriptions` (o painel administrativo vem na Etapa 9). **Antes de abrir acesso público,
+revise esses limites.**
 
 Erros do worker: `render_failed`, `no_candidates`, `analysis_refused`, `analysis_failed`, `analysis_unavailable`,
 `analysis_misconfigured`, `no_speech`, `audio_extraction_failed`, `transcription_failed`, `transcription_unavailable`,

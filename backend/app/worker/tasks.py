@@ -66,6 +66,9 @@ def _finish_success(job_id: uuid.UUID, message: str = "Processamento concluído"
         job.finished_at = datetime.now(UTC)
         transition(project, S.completed, message)
         project.progress = 100
+        from app.services.quotas import charge_processed
+
+        charge_processed(db, project, job.id, get_settings())  # mesma transação: cobra só se concluir
         audit.record(db, project.owner_id, "job.succeeded", "processing_job", job.id)
         db.commit()
         return True

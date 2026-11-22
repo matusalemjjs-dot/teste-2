@@ -11,6 +11,20 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+class UsageOut(BaseModel):
+    plan: str
+    status: str
+    period_start: datetime
+    period_end: datetime
+    quota_minutes: int
+    used_minutes: float = Field(description="Minutos de vídeo processados com sucesso no mês")
+    reserved_minutes: float = Field(description="Minutos de projetos em fila ou em processamento")
+    remaining_minutes: float
+    projects_last_24h: int
+    projects_per_day: int
+    quotas_enabled: bool
+
+
 class MeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
@@ -18,6 +32,7 @@ class MeOut(BaseModel):
     display_name: str | None
     is_admin: bool
     created_at: datetime
+    usage: UsageOut | None = None
 
 
 class ProjectCreate(BaseModel):

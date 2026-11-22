@@ -82,6 +82,13 @@ def request_processing(db: Session, settings: Settings, owner_id: uuid.UUID,
         raise ProcessRejected("attempts_exhausted",
                               f"Limite de {settings.max_process_attempts} tentativas atingido para este projeto.")
 
+    from app.services.quotas import check_process
+
+    try:
+        check_process(db, owner_id, project, settings)
+    except Exception:
+        db.rollback()
+        raise
     attempt = _job_count(db, project.id) + 1
     job = ProcessingJob(project_id=project.id, owner_id=owner_id, job_type=JobType.process_project.value,
                         status=JobStatus.queued.value, idempotency_key=f"process_project:{project.id}:{attempt}",

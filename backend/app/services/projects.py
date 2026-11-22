@@ -47,6 +47,14 @@ def transition(project: Project, target: S, message: str | None = None) -> None:
 
 
 def create_project(db: Session, owner_id: uuid.UUID, title: str) -> Project:
+    from app.core.config import get_settings
+    from app.services.quotas import check_create_project
+
+    try:
+        check_create_project(db, owner_id, get_settings())  # trava a assinatura até o commit
+    except Exception:
+        db.rollback()
+        raise
     project = Project(owner_id=owner_id, title=title, status=S.pending.value, progress=0,
                       rights_confirmed_at=datetime.now(UTC))
     db.add(project)
