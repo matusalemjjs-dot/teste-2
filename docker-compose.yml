@@ -24,34 +24,20 @@ services:
       interval: 5s
       retries: 10
 
-  # Object storage compatível com S3 (bucket privado). Console: http://localhost:9001
-  minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-    command: server /data --console-address ":9001"
+  # Object storage compatível com S3 (RustFS, Apache 2.0) — só para desenvolvimento; produção usa S3/R2.
+  # O bucket privado e o CORS são criados pela própria aplicação: python -m app.storage_setup (README).
+  storage:
+    image: rustfs/rustfs:1.0.4
     environment:
-      MINIO_ROOT_USER: autoclip
-      MINIO_ROOT_PASSWORD: autoclip-dev-secret
-      # o navegador envia o vídeo direto ao storage: libera a origem do frontend
-      MINIO_API_CORS_ALLOW_ORIGIN: "http://localhost:3000"
-    ports: ["9000:9000", "9001:9001"]
+      RUSTFS_ACCESS_KEY: autoclip
+      RUSTFS_SECRET_KEY: autoclip-dev-secret
+    ports: ["9000:9000"]
     volumes:
-      - miniodata:/data
+      - storagedata:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/health"]
       interval: 5s
       retries: 10
-
-  minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 autoclip autoclip-dev-secret &&
-      mc mb --ignore-existing local/autoclip-media &&
-      mc anonymous set none local/autoclip-media"
-    restart: "no"
 
   # Worker em contêiner (recomendado no Windows). Uso: docker compose --profile worker up -d worker
   worker:
@@ -64,13 +50,13 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://autoclip:autoclip@postgres:5432/autoclip
       REDIS_URL: redis://redis:6379/0
-      S3_ENDPOINT_URL: http://minio:9000
+      S3_ENDPOINT_URL: http://storage:9000
       WORKER_TMP_DIR: /tmp/autoclip
       WHISPER_MODEL_DIR: /models
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      storage: {condition: service_healthy}
     volumes:
       - workertmp:/tmp/autoclip
       - whispermodels:/models
@@ -82,6 +68,6 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  storagedata:
   workertmp:
   whispermodels:

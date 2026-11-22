@@ -35,7 +35,7 @@ backend/            API FastAPI (Python 3.12+)
   alembic/          migrações
   tests/            Pytest (usa PostgreSQL real)
 infra/              scripts de infraestrutura local
-docker-compose.yml  PostgreSQL 16, Redis 7 e MinIO (S3 local)
+docker-compose.yml  PostgreSQL 16, Redis 7 e RustFS (S3 local)
 ```
 
 ## API disponível nesta etapa
@@ -280,10 +280,9 @@ await fetch(ticket.url, { method: "POST", body: form });
 Todas as rotas `/api/v1/*` exigem `Authorization: Bearer <access_token do Supabase>`. Projetos de outros
 usuários retornam 404 (indistinguíveis de inexistentes).
 
-> **Atenção (22/11/2026)**: a imagem `minio/minio` usada no `docker-compose.yml` de **desenvolvimento** não está
-> mais disponível no Docker Hub (a MinIO deixou de distribuir imagens gratuitas). A produção não é afetada (usa
-> S3/R2). Até a substituição ser aprovada, use um bucket S3/R2 de desenvolvimento ou o emulador usado nos testes
-> (`python -m moto.server -p 9000`, instalado com `requirements-dev.txt`).
+> O armazenamento local de desenvolvimento é o **RustFS** (compatível com S3). Ele substituiu o MinIO em
+> 22/11/2026, quando a imagem `minio/minio` deixou de estar disponível no Docker Hub. Quem já tinha o volume
+> antigo pode apagá-lo com `docker volume rm teste-2_miniodata` (o nome do prefixo segue a pasta do repositório).
 
 ## Executar no Windows
 
@@ -294,7 +293,7 @@ Pré-requisitos: [Python 3.12+](https://www.python.org/downloads/) (marque "Add 
 No PowerShell, na pasta do repositório:
 
 ```powershell
-# 1. Infraestrutura (PostgreSQL + Redis + MinIO; o bucket privado é criado automaticamente)
+# 1. Infraestrutura (PostgreSQL + Redis + RustFS)
 docker compose up -d
 
 # 2. Ambiente Python
@@ -306,8 +305,9 @@ pip install -r requirements-dev.txt
 # 3. Configuração
 Copy-Item ..\.env.example .env      # edite SUPABASE_URL (e SUPABASE_JWT_SECRET se usar HS256)
 
-# 4. Migrações
+# 4. Migrações e bucket privado com CORS para http://localhost:3000
 alembic upgrade head
+python -m app.storage_setup
 
 # 5. API
 uvicorn app.main:app --reload --port 8000
@@ -329,8 +329,8 @@ Configuração no painel do Supabase (Authentication > URL Configuration): **Sit
 `SUPABASE_URL` deve ser o mesmo projeto.
 
 O navegador envia o vídeo direto ao storage, então o bucket precisa aceitar a origem do frontend (CORS):
-- MinIO do `docker compose`: já liberado para `http://localhost:3000` (`MINIO_API_CORS_ALLOW_ORIGIN`);
-- AWS S3 / R2 / outros: defina `S3_CORS_ORIGINS` e rode `python -m app.storage_setup` no backend.
+- RustFS do `docker compose`: `python -m app.storage_setup` (passo 4) libera `http://localhost:3000`;
+- AWS S3 / R2 / outros: defina `S3_CORS_ORIGINS` e rode o mesmo `python -m app.storage_setup` no backend.
 
 ### Worker no Windows
 
@@ -392,7 +392,7 @@ docker compose up -d
 cd backend && python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 cp ../.env.example .env
-alembic upgrade head && uvicorn app.main:app --reload
+alembic upgrade head && python -m app.storage_setup && uvicorn app.main:app --reload
 python -m app.worker.run          # em outro terminal
 pytest
 ```

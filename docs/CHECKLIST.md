@@ -31,7 +31,7 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [x] Excluir projeto apaga os arquivos; storage indisponível → 503 e nada é apagado
 - [x] Metadados livres (título, GPS) não são armazenados
 - [x] Assinaturas de URL removidas dos logs
-- [ ] `docker compose up` com MinIO — **não executado** (sem Docker daemon no ambiente de desenvolvimento)
+- [x] `docker compose up` de desenvolvimento — MinIO substituído pelo RustFS 1.0.4 (ver Etapa 9)
 - [x] Envio pelo navegador (CORS) — verificado no E2E da Etapa 8 (S3 emulado)
 
 ## Etapa 3
@@ -226,7 +226,9 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
       em modo de autenticação de teste e avaliador de teste no lugar do Claude; transcrição (Whisper `small`),
       renderização e regeneração reais no worker de produção
 - [ ] Certificado real e pilha na VM com provedores reais
-- [ ] Substituir a imagem MinIO do `docker-compose.yml` de desenvolvimento (indisponível no Docker Hub) — aguarda aprovação
+- [x] Imagem MinIO do `docker-compose.yml` de desenvolvimento (indisponível no Docker Hub) substituída pelo
+      RustFS 1.0.4 (autorizado): 10/10 em `app.validar armazenamento`; SeaweedFS 4.00 reprovou tipo de arquivo e
+      CORS. Fluxo de desenvolvimento do README testado (compose, migrações, `storage_setup`, envio, processamento)
 - [ ] Cópia dos backups para fora da VM — recomendação; depende do provedor
 
 ## Etapa 9 — Lote 7 (validação real e liberação)
