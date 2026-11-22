@@ -23,5 +23,5 @@ Cada etapa termina com testes automatizados executados e um relatório do que fo
 | 3 | Retenção (7/30 dias), exclusão de conta, página de transparência | **Concluído** |
 | 4 | Convites (Supabase + lista na API), limites do beta, reserva de custo, administração por linha de comando | **Concluído** |
 | 5 | Monitoramento: prontidão, alertas, relatório diário, cabeçalhos e CSP Report-Only, avaliação dos cortes | **Concluído** |
-| 6 | Implantação: VM com Docker Compose, HTTPS, armazenamento gerenciado, backup | Próximo (depende de provedores) |
-| 7 | Validações reais (Supabase, Claude, armazenamento) e checklist de liberação | Pendente (depende de chaves) |
+| 6 | Implantação: VM com Docker Compose, HTTPS, armazenamento gerenciado, backup — ver [IMPLANTACAO.md](IMPLANTACAO.md) | **Arquivos prontos**; execução na VM pendente (provedores) |
+| 7 | Validações reais (Supabase, Claude, armazenamento) e checklist de liberação | Próximo (depende de chaves) |

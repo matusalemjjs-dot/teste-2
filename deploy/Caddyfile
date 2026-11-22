@@ -1,0 +1,32 @@
+# HTTPS automático (Let's Encrypt) para o frontend e a API.
+{
+	email {$ACME_EMAIL}
+}
+
+(seguranca) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}
+
+{$APP_DOMAIN} {
+	import seguranca
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}
+
+{$API_DOMAIN} {
+	import seguranca
+	encode zstd gzip
+	# O vídeo vai direto ao armazenamento; a API só recebe JSON pequeno.
+	request_body {
+		max_size 1MB
+	}
+	reverse_proxy api:8000 {
+		transport http {
+			# finalize-upload valida o vídeo de forma síncrona (até ~165 s medidos com armazenamento emulado)
+			response_header_timeout 300s
+		}
+	}
+}

@@ -9,6 +9,11 @@ processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADM
 > Sem `ANTHROPIC_API_KEY`, a análise falha com `analysis_misconfigured` e nenhum corte é gerado.
 > Nada neste repositório simula resultados de processamento.
 
+## Implantação (beta)
+
+Produção em uma VM com Docker Compose, HTTPS automático e armazenamento gerenciado: veja
+[docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) (`deploy/`).
+
 ## Estrutura
 
 ```

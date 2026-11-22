@@ -211,6 +211,17 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Canal de alertas real (Slack/Discord) — depende de você; testado contra servidor local
 - [ ] Ativar o bloqueio da CSP — depois do beta, após período sem violações
 
+## Etapa 9 — Lote 6 (implantação)
+- [x] `deploy/docker-compose.prod.yml` válido (9 serviços; `worker2` por perfil); Redis com persistência; limites
+      de memória do worker; logs com rotação; `migrate` aplica migrações e configura o bucket
+- [x] Caddy com HTTPS automático, HSTS, limite de 1 MB para a API e timeout de 300 s para a validação do upload
+- [x] Backup diário com conferência do arquivo e retenção de 7 dias; **restauração testada com dados reais**
+      (10 tabelas, 1.342 trechos de transcrição, conteúdo idêntico por checksum)
+- [x] Roteiro de implantação e verificação antes de convidar ([IMPLANTACAO.md](IMPLANTACAO.md))
+- [ ] Construir as imagens e subir a pilha na VM — **não executado** (sem Docker em execução aqui)
+- [ ] Caddyfile e versões das imagens — conferir no primeiro `up`
+- [ ] Cópia dos backups para fora da VM — recomendação; depende do provedor
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível

@@ -1,0 +1,150 @@
+# Produção do beta fechado (uma VM). Uso, a partir da raiz do repositório:
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
+# Segundo worker (só depois de confirmar folga de memória/CPU):
+#   docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env --profile worker2 up -d
+name: autoclip
+
+x-backend: &backend
+  build: ../backend
+  image: autoclip-backend:${APP_VERSION:-local}
+  env_file: [.env]
+  environment:
+    ENVIRONMENT: production
+    DATABASE_URL: postgresql+psycopg://autoclip:${POSTGRES_PASSWORD}@postgres:5432/autoclip
+    REDIS_URL: redis://redis:6379/0
+    WORKER_TMP_DIR: /tmp/autoclip
+    WHISPER_MODEL_DIR: /models
+  restart: unless-stopped
+  logging: &logs
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+
+x-worker: &worker
+  <<: *backend
+  command: ["python", "-m", "app.worker.run"]
+  volumes:
+    - workertmp:/tmp/autoclip
+    - whispermodels:/models
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+  stop_grace_period: 60s
+  deploy:
+    resources:
+      # RAM real: pico medido de 4,3 GB por vídeo de 60 min (docs/CAPACIDADE.md)
+      limits: {cpus: "2", memory: 6g}
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    logging: *logs
+    depends_on: [api, frontend]
+
+  migrate:
+    <<: *backend
+    command: ["sh", "-c", "alembic upgrade head && python -m app.storage_setup"]
+    restart: "no"
+
+  api:
+    <<: *backend
+    # --proxy-headers: o IP real do cliente vem do Caddy (limites por IP)
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2",
+              "--proxy-headers", "--forwarded-allow-ips", "*"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      retries: 3
+
+  worker:
+    <<: *worker
+
+  worker2:
+    <<: *worker
+    profiles: ["worker2"]
+
+  maintenance:
+    <<: *backend
+    command: ["python", "-m", "app.worker.maintenance", "--loop"]
+    volumes:
+      - workertmp:/tmp/autoclip
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN}
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_STORAGE_ORIGIN: ${STORAGE_PUBLIC_ORIGIN}
+        NEXT_PUBLIC_BETA_MODE: ${BETA_MODE:-true}
+    image: autoclip-frontend:${APP_VERSION:-local}
+    restart: unless-stopped
+    logging: *logs
+
+  postgres:
+    image: postgres:16.10-alpine
+    environment:
+      POSTGRES_USER: autoclip
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: autoclip
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoclip"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+    logging: *logs
+
+  redis:
+    image: redis:7.4-alpine
+    # persistência (fila sobrevive a reinícios; a manutenção cobre o resto)
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+    logging: *logs
+
+  backup:
+    image: postgres:16.10-alpine
+    environment:
+      PGHOST: postgres
+      PGUSER: autoclip
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: autoclip
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - backups:/backups
+    entrypoint: ["sh", "-c", "while true; do sh /backup.sh /backups || echo 'BACKUP FALHOU'; sleep 86400; done"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: unless-stopped
+    logging: *logs
+
+volumes:
+  pgdata:
+  redisdata:
+  workertmp:
+  whispermodels:
+  backups:
+  caddy_data:
+  caddy_config:
