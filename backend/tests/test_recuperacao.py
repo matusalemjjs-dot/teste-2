@@ -322,14 +322,22 @@ def test_f2b_worker_real_morto_com_sigkill_e_recuperado(client, alice, long_spee
         time.sleep(1.0)  # pelo menos um sinal de vida registrado
         # Queda da máquina: o RQ põe o processo do job em outra sessão (setsid), então matamos o worker
         # principal primeiro (ele não pode mais avisar) e depois o processo do job.
-        filhos = subprocess.run(["pgrep", "-P", str(proc.pid)], capture_output=True, text=True).stdout.split()
+        filhos = _filhos(proc.pid)  # via /proc (a imagem Debian enxuta não tem pgrep)
         os.killpg(proc.pid, signal.SIGKILL)
         for pid_filho in filhos:
             try:
-                os.kill(int(pid_filho), signal.SIGKILL)
+                os.kill(pid_filho, signal.SIGKILL)
             except ProcessLookupError:
                 pass
     finally:
+        # nunca deixar um worker real vivo: ele pegaria os jobs dos testes seguintes
+        for pid_filho in _filhos(proc.pid):
+            try:
+                os.kill(pid_filho, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
         proc.wait(10)
     assert status(client, alice, pid)["job"]["status"] == "running"  # ninguém avisou: ficou "rodando"
     monkeypatch.setattr(get_settings(), "stale_heartbeat_seconds", 2)
@@ -347,6 +355,18 @@ def test_f2b_worker_real_morto_com_sigkill_e_recuperado(client, alice, long_spee
 
 
 # =============================================================== F3 — exclusão com job preso ou rodando
+
+def _filhos(pid: int) -> list[int]:
+    out = []
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                if int(Path(f"/proc/{d}/stat").read_text().rsplit(")", 1)[1].split()[1]) == pid:
+                    out.append(int(d))
+            except (OSError, IndexError, ValueError):
+                pass
+    return out
+
 
 def projeto_com_regeneracao(client, user, video) -> tuple[str, uuid.UUID, uuid.UUID]:
     """Projeto concluído com um corte e uma regeneração na fila (linhas criadas direto no banco)."""

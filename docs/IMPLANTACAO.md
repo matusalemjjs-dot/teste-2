@@ -3,9 +3,14 @@
 Uma VM com Docker Compose, HTTPS automático (Caddy) e armazenamento de objetos gerenciado (S3 ou R2).
 Arquivos: [`deploy/`](../deploy/) e `frontend/Dockerfile`, `backend/Dockerfile`.
 
-> **Estado**: os arquivos foram validados aqui (sintaxe do Compose; backup e restauração testados com dados
-> reais), mas as **imagens não foram construídas nem a pilha subida**: não há Docker em execução no ambiente
-> de desenvolvimento. O primeiro `up` na VM é o teste real — siga a seção 9 antes de convidar alguém.
+> **Estado (22/11/2026)**: imagens construídas e **pilha de produção completa executada localmente** com este
+> mesmo Compose e Caddyfile (domínios `*.localhost` com certificado interno do Caddy, S3 emulado no lugar do
+> R2/S3, sem chave do Claude). Verificado: 10 serviços no ar, `migrate` (migrações + bucket privado com CORS),
+> `/health/ready` 200 (503 sem worker), `/docs` 404, HTTPS com HSTS e cabeçalhos de segurança, convidado ×
+> não convidado (403), upload direto + validação no contêiner, worker transcrevendo com Whisper `small` (6 GB de
+> RAM e 8 GB virtuais aplicados), parada honesta sem chave do Claude, comando de administração, backup e alerta
+> "nenhum worker vivo". A **suíte completa do backend (246 testes) passa dentro da imagem de produção**
+> (Debian 13: FFmpeg 7.1, Python 3.12). Falta na VM: certificado real (Let's Encrypt), provedores reais.
 
 ## 1. Decisões e contas necessárias
 
@@ -127,9 +132,6 @@ se houve migração, restaure o backup.
 
 ## 10. O que não foi testado neste ambiente
 
-- Construção das imagens (`backend/Dockerfile`, `frontend/Dockerfile`) e a pilha subindo de verdade.
-- Versões fixadas das imagens (`caddy:2.10.2-alpine`, `postgres:16.10-alpine`, `redis:7.4-alpine`,
-  `node:22.21-alpine`): conferir que existem no Docker Hub no primeiro `up`.
-- Caddyfile (sintaxe e obtenção de certificado).
-- FFmpeg da imagem Debian do backend (os testes usaram o FFmpeg 6.1 do Ubuntu).
-- S3/R2, Supabase e Claude reais (Lote 7).
+- Certificado real do Let's Encrypt (localmente o Caddy usou o certificado interno para `*.localhost`).
+- S3/R2, Supabase e Claude reais (Lote 7, `python -m app.validar`).
+- Desempenho na VM escolhida (o teste de capacidade foi feito num contêiner de 4 vCPU / 16 GB).

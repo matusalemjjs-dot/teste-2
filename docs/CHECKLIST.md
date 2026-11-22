@@ -218,8 +218,12 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [x] Backup diário com conferência do arquivo e retenção de 7 dias; **restauração testada com dados reais**
       (10 tabelas, 1.342 trechos de transcrição, conteúdo idêntico por checksum)
 - [x] Roteiro de implantação e verificação antes de convidar ([IMPLANTACAO.md](IMPLANTACAO.md))
-- [ ] Construir as imagens e subir a pilha na VM — **não executado** (sem Docker em execução aqui)
-- [ ] Caddyfile e versões das imagens — conferir no primeiro `up`
+- [x] Imagens construídas; versões fixadas existem; **pilha de produção executada localmente** (Caddy com HTTPS
+      interno, 10 serviços, migrate, prontidão, `/docs` 404, cabeçalhos, convite, upload, validação, transcrição no
+      worker com limites, administração, backup, alerta de worker parado)
+- [x] Suíte completa do backend (246) **dentro da imagem de produção** (FFmpeg 7.1, Python 3.12)
+- [ ] Certificado real e pilha na VM com provedores reais
+- [ ] Substituir a imagem MinIO do `docker-compose.yml` de desenvolvimento (indisponível no Docker Hub) — aguarda aprovação
 - [ ] Cópia dos backups para fora da VM — recomendação; depende do provedor
 
 ## Etapa 9 — Lote 7 (validação real e liberação)

@@ -280,6 +280,11 @@ await fetch(ticket.url, { method: "POST", body: form });
 Todas as rotas `/api/v1/*` exigem `Authorization: Bearer <access_token do Supabase>`. Projetos de outros
 usuários retornam 404 (indistinguíveis de inexistentes).
 
+> **Atenção (22/11/2026)**: a imagem `minio/minio` usada no `docker-compose.yml` de **desenvolvimento** não está
+> mais disponível no Docker Hub (a MinIO deixou de distribuir imagens gratuitas). A produção não é afetada (usa
+> S3/R2). Até a substituição ser aprovada, use um bucket S3/R2 de desenvolvimento ou o emulador usado nos testes
+> (`python -m moto.server -p 9000`, instalado com `requirements-dev.txt`).
+
 ## Executar no Windows
 
 Pré-requisitos: [Python 3.12+](https://www.python.org/downloads/) (marque "Add to PATH"),
