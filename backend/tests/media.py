@@ -27,3 +27,14 @@ def truncate(src: Path, dst: Path, fraction: float) -> Path:
     data = src.read_bytes()
     dst.write_bytes(data[: int(len(data) * fraction)])
     return dst
+
+
+def make_speech_video(path: Path, text: str, *, pad_to: float = 20, voice: str = "pt-br") -> Path:
+    wav = path.with_suffix(".wav")
+    subprocess.run(["espeak-ng", "-v", voice, "-s", "140", "-w", str(wav), text], check=True)
+    ffmpeg("-f", "lavfi", "-i", f"testsrc=size=320x240:rate=15:duration={pad_to}", "-i", str(wav),
+           "-filter_complex", f"[1:a]apad=whole_dur={pad_to}[a]", "-map", "0:v", "-map", "[a]",
+           "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k",
+           "-t", str(pad_to), str(path))
+    wav.unlink()
+    return path

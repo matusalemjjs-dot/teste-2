@@ -19,7 +19,8 @@ from app.services.projects import transition
 logger = logging.getLogger("autoclip.jobs")
 
 # Falhas de infraestrutura não consomem as tentativas do usuário.
-INFRA_ERROR_CODES = {"queue_unavailable", "worker_lost", "insufficient_disk", "stage_unavailable", "storage_error"}
+INFRA_ERROR_CODES = {"queue_unavailable", "worker_lost", "insufficient_disk", "stage_unavailable", "storage_error",
+                     "transcription_unavailable", "transcription_misconfigured"}
 ACTIVE = (JobStatus.queued.value, JobStatus.running.value)
 
 

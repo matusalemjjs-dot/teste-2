@@ -89,7 +89,8 @@ def process_project(job_id: str) -> str:
         done = 0
         for stage in pipeline:
             ctx.checkpoint()
-            ctx.progress(done * 100 // total, f"Etapa: {stage.label}", stage=stage.name)
+            ctx.stage_range = (done * 100 // total, (done + stage.weight) * 100 // total)
+            ctx.progress(ctx.stage_range[0], f"Etapa: {stage.label}", stage=stage.name)
             stage.run(ctx)
             done += stage.weight
         ctx.checkpoint()

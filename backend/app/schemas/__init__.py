@@ -127,4 +127,18 @@ class ProcessOut(BaseModel):
     created: bool = Field(description="false quando a requisição repetida devolveu o processamento existente")
 
 
+class TranscriptSegmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    seq: int
+    start_seconds: float
+    end_seconds: float
+    text: str
+    confidence: float | None
+
+
+class TranscriptOut(BaseModel):
+    project_id: uuid.UUID
+    segments: list[TranscriptSegmentOut]
+
+
 ProjectStatusOut.model_rebuild()

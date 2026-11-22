@@ -92,20 +92,20 @@ def test_isolamento_processamento(client, alice, bob, video):
 
 # ---------------------------------------------------------------- execução
 
-def test_pipeline_padrao_nao_finge_resultado(client, alice, video):
-    """Sem transcrição/IA/renderização implementadas, o projeto NÃO pode ser concluído."""
-    pid = projeto_pronto(client, alice, video)
+def test_pipeline_padrao_nao_finge_resultado(client, alice, speech_video, whisper_ready):
+    """Sem IA/renderização implementadas, o projeto NÃO pode ser concluído (a transcrição fica salva)."""
+    pid = projeto_pronto(client, alice, speech_video)
     processar(client, alice, pid)
     rodar_worker()
     st = status(client, alice, pid)
     assert st["status"] == "failed"
     assert st["error_code"] == "stage_unavailable"
-    assert "transcrição" in st["status_message"]
+    assert "análise inteligente" in st["status_message"]
     assert st["progress"] < 100
-    assert st["job"]["status"] == "failed" and st["job"]["stage"] == "transcribe"
+    assert st["job"]["status"] == "failed" and st["job"]["stage"] == "analyze"
     with get_sessionmaker()() as db:
         asset = db.scalar(select(MediaAsset).where(MediaAsset.project_id == uuid.UUID(pid)))
-    assert asset.checksum_sha256 == hashlib.sha256(video.read_bytes()).hexdigest()
+    assert asset.checksum_sha256 == hashlib.sha256(speech_video.read_bytes()).hexdigest()
     assert tmp_vazio()
 
 
@@ -171,9 +171,10 @@ def test_nova_tentativa_apos_falha_e_limite(client, alice, video, monkeypatch):
     assert r.status_code == 409 and r.json()["code"] == "attempts_exhausted"
 
 
-def test_falhas_de_infraestrutura_nao_consomem_tentativas(client, alice, video):
+def test_falhas_de_infraestrutura_nao_consomem_tentativas(client, alice, video, monkeypatch):
+    usar_pipeline(monkeypatch, Stage("x", "teste", 5, stages_mod.unavailable("teste")), com_prepare=False)
     pid = projeto_pronto(client, alice, video)
-    for _ in range(4):  # pipeline padrão -> stage_unavailable
+    for _ in range(4):
         assert processar(client, alice, pid).status_code == 202
         rodar_worker()
     assert status(client, alice, pid)["error_code"] == "stage_unavailable"
@@ -332,14 +333,15 @@ def _worker_env(**extra) -> dict:
     return env
 
 
-def test_worker_real_em_processo_separado(client, alice, video):
+def test_worker_real_em_processo_separado(client, alice, video, whisper_ready):
     pid = projeto_pronto(client, alice, video)
     processar(client, alice, pid)
     r = subprocess.run([sys.executable, "-m", "app.worker.run", "--burst"], cwd=BACKEND, env=_worker_env(),
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr[-2000:]
     st = status(client, alice, pid)
-    assert st["status"] == "failed" and st["error_code"] == "stage_unavailable"
+    # o vídeo de teste só tem um tom senoidal: a transcrição real roda e não encontra fala
+    assert st["status"] == "failed" and st["error_code"] == "no_speech"
     assert jobs(pid)[0].attempts == 1
     assert tmp_vazio()
 

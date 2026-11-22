@@ -35,7 +35,20 @@ class JobContext:
     workdir: Path
     settings: Settings
     data: dict = field(default_factory=dict)  # resultados entre etapas (ex.: caminho do vídeo baixado)
+    stage_range: tuple[int, int] = (0, 100)  # faixa de progresso da etapa atual
     _last_check: float = 0.0
+    _last_progress: float = 0.0
+
+    def stage_progress(self, fraction: float, message: str, *, min_interval: float = 3.0) -> None:
+        """Progresso dentro da etapa (0..1). Também verifica cancelamento. Limitado a uma escrita a cada
+        `min_interval` segundos para não sobrecarregar o banco."""
+        now = time.monotonic()
+        if now - self._last_progress < min_interval:
+            self.checkpoint(min_interval=1.0)
+            return
+        self._last_progress = now
+        lo, hi = self.stage_range
+        self.progress(lo + (hi - lo) * max(0.0, min(fraction, 1.0)), message)
 
     def is_canceled(self) -> bool:
         with get_sessionmaker()() as db:

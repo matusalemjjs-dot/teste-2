@@ -8,12 +8,14 @@ import hashlib
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.session import get_sessionmaker
-from app.models import MediaAsset
+from app.models import MediaAsset, Project, TranscriptSegment
 from app.models.enums import AssetKind, AssetStatus
+from app.models.enums import ProjectStatus as PS
 from app.pipeline.context import JobContext, PipelineError
 from app.services.storage import StorageError, get_storage, iter_object
 
@@ -72,18 +74,87 @@ def prepare_source(ctx: JobContext) -> None:
     ctx.data["source_sha256"] = checksum
 
 
+def extract_audio(ctx: JobContext, fmt: str) -> Path:
+    src = ctx.data["source_path"]
+    s = ctx.settings
+    if fmt == "wav":
+        out, codec = ctx.workdir / "audio.wav", ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le"]
+    else:
+        out, codec = ctx.workdir / "audio.mp3", ["-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "32k"]
+    cmd = [s.ffmpeg_path, "-nostdin", "-y", "-v", "error", "-threads", str(s.ffmpeg_threads), "-i", str(src),
+           "-map", "0:a:0", "-vn", *codec, str(out)]
+    r = ctx.run(cmd, timeout=s.transcription_timeout_seconds)
+    if r.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+        raise PipelineError("audio_extraction_failed", "Não foi possível extrair o áudio do vídeo.",
+                            detail=r.stderr.decode("utf-8", "replace")[-2000:])
+    return out
+
+
+def transcribe(ctx: JobContext) -> None:
+    """Extrai o áudio, transcreve com o provedor configurado e grava os segmentos (substituindo os anteriores)."""
+    from app.transcription import TranscriptionError, get_transcriber
+    from app.transcription.base import normalize_segments
+
+    try:
+        transcriber = get_transcriber(ctx.settings)
+    except TranscriptionError as exc:
+        raise PipelineError(exc.code, exc.message, exc.detail) from exc
+    with get_sessionmaker()() as db:
+        duration = float(db.scalar(select(Project.source_duration_seconds).where(Project.id == ctx.project_id)) or 0)
+
+    ctx.stage_progress(0.0, "Extraindo o áudio", min_interval=0)
+    audio = extract_audio(ctx, transcriber.audio_format)
+    ctx.stage_progress(0.1, "Transcrevendo o áudio", min_interval=0)
+
+    def on_progress(fraction: float) -> None:
+        ctx.stage_progress(0.1 + 0.9 * fraction, f"Transcrevendo o áudio ({int(fraction * 100)}%)")
+
+    try:
+        result = transcriber.transcribe(audio, duration, on_progress)
+    except TranscriptionError as exc:
+        raise PipelineError(exc.code, exc.message, exc.detail) from exc
+    finally:
+        audio.unlink(missing_ok=True)
+
+    segments = normalize_segments(result.segments, duration or result.audio_duration)
+    if not segments:
+        raise PipelineError("no_speech", "Não identificamos fala no vídeo. Os cortes são gerados a partir da fala.")
+
+    with get_sessionmaker()() as db:
+        project = db.scalar(select(Project).where(Project.id == ctx.project_id).with_for_update())
+        if project is None or PS(project.status) != PS.processing:
+            db.rollback()
+            from app.pipeline.context import Canceled
+
+            raise Canceled()
+        # Idempotência: uma nova execução substitui a transcrição anterior em vez de duplicá-la.
+        db.execute(delete(TranscriptSegment).where(TranscriptSegment.project_id == ctx.project_id))
+        db.add_all([
+            TranscriptSegment(
+                project_id=ctx.project_id, seq=i, start_seconds=seg.start, end_seconds=seg.end, text=seg.text,
+                confidence=seg.confidence,
+                words=[{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word} for w in seg.words]
+                or None,
+            )
+            for i, seg in enumerate(segments)
+        ])
+        db.commit()
+    ctx.data["transcript"] = segments
+    ctx.data["language"] = result.language
+
+
 def unavailable(label: str) -> Callable[[JobContext], None]:
     def run(ctx: JobContext) -> None:
         raise PipelineError("stage_unavailable",
                             f"A etapa de {label} ainda não está disponível nesta versão do AutoClip IA. "
-                            "Nenhum corte foi gerado.")
+                            "Nenhum corte foi gerado.")  # etapas anteriores (ex.: transcrição) ficam salvas
     return run
 
 
 def default_pipeline() -> list[Stage]:
     return [
         Stage("prepare", "preparação do vídeo", 5, prepare_source),
-        Stage("transcribe", "transcrição", 35, unavailable("transcrição")),
+        Stage("transcribe", "transcrição", 35, transcribe),
         Stage("analyze", "análise inteligente", 20, unavailable("análise inteligente")),
         Stage("render", "renderização dos cortes", 40, unavailable("renderização")),
     ]

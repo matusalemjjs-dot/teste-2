@@ -64,12 +64,14 @@ services:
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000
       WORKER_TMP_DIR: /tmp/autoclip
+      WHISPER_MODEL_DIR: /models
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       minio: {condition: service_healthy}
     volumes:
       - workertmp:/tmp/autoclip
+      - whispermodels:/models
     deploy:
       resources:
         limits: {cpus: "2", memory: 4g}
@@ -79,3 +81,4 @@ volumes:
   pgdata:
   miniodata:
   workertmp:
+  whispermodels:

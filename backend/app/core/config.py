@@ -56,6 +56,22 @@ class Settings(BaseSettings):
     stale_job_grace_seconds: int = 300  # margem além do timeout para considerar um job perdido
     ffmpeg_threads: int = 2
 
+    # Transcrição (provedor substituível por configuração)
+    transcription_provider: str = "faster_whisper"  # faster_whisper | openai
+    transcription_language: str | None = "pt"  # vazio = detecção automática
+    transcription_timeout_seconds: int = 3600
+    whisper_model: str = "small"  # tiny | base | small | medium | large-v3 ...
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+    whisper_cpu_threads: int = 2
+    whisper_beam_size: int = 5
+    whisper_model_dir: str | None = None  # cache dos modelos; padrão do Hugging Face se vazio
+    # Serviço externo compatível com POST /audio/transcriptions (OpenAI ou equivalente)
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_key: SecretStr | None = None
+    openai_transcription_model: str = "whisper-1"
+    openai_max_upload_mb: int = 25
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024

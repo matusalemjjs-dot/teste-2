@@ -4,9 +4,10 @@ Plataforma SaaS que transforma vídeos longos em cortes curtos usando transcriç
 processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADMAP.md](docs/ROADMAP.md) e
 [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-> **Estado atual: Etapa 3 (fila e worker).** Upload, validação, fila e worker funcionam. Transcrição, IA e
-> renderização **ainda não existem**: ao processar, o projeto termina como `failed` com
-> `error_code=stage_unavailable`. Nada neste repositório simula resultados de processamento.
+> **Estado atual: Etapa 4 (transcrição).** Upload, validação, fila, worker e transcrição funcionam. A análise
+> por IA e a renderização **ainda não existem**: o projeto termina como `failed` com
+> `error_code=stage_unavailable` na etapa `analyze`, com a transcrição salva e disponível em
+> `GET /projects/{id}/transcript`. Nada neste repositório simula resultados de processamento.
 
 ## Estrutura
 
@@ -18,6 +19,7 @@ backend/            API FastAPI (Python 3.12+)
   app/services/     regras de negócio (projetos, upload, storage, fila, auditoria)
   app/pipeline/     etapas do processamento e contexto (progresso, cancelamento, subprocessos)
   app/worker/       worker RQ, limites de recursos, limpeza de temporários
+  app/transcription/ adaptadores de transcrição (faster-whisper local, serviço externo)
   alembic/          migrações
   tests/            Pytest (usa PostgreSQL real)
 infra/              scripts de infraestrutura local
@@ -38,6 +40,7 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
 | GET | `/api/v1/projects/{id}/status` | Status e progresso |
 | POST | `/api/v1/projects/{id}/upload-url` | URL assinada (POST multipart) para enviar o MP4 direto ao storage |
 | POST | `/api/v1/projects/{id}/finalize-upload` | Valida o arquivo enviado com FFprobe (idempotente) |
+| GET | `/api/v1/projects/{id}/transcript` | Segmentos transcritos com timestamps |
 | POST | `/api/v1/projects/{id}/process` | Enfileirar processamento (idempotente) |
 | POST | `/api/v1/projects/{id}/cancel` | Cancelar, inclusive durante o processamento (idempotente) |
 | DELETE | `/api/v1/projects/{id}` | Excluir projeto **e seus arquivos** (bloqueado durante processamento) |
@@ -69,8 +72,8 @@ Códigos de erro: `invalid_extension`, `invalid_type`, `empty_file`, `file_too_l
 - Cada tentativa é um registro em `processing_jobs` com chave única `process_project:{projeto}:{n}`. O worker só
   executa jobs `queued`; reexecutar a tarefa não processa de novo.
 - Limite de `MAX_PROCESS_ATTEMPTS` tentativas que falharam por causa do vídeo/processamento. Falhas de
-  infraestrutura (`queue_unavailable`, `worker_lost`, `insufficient_disk`, `storage_error`, `stage_unavailable`)
-  não contam.
+  infraestrutura (`queue_unavailable`, `worker_lost`, `insufficient_disk`, `storage_error`, `stage_unavailable`,
+  `transcription_unavailable`, `transcription_misconfigured`) não contam.
 - `GET /status` mostra `progress`, `status_message` e o job atual (`stage`, `attempts`, `error_code`).
 - Cancelar marca o projeto como `canceled`; se o job ainda está na fila ele é removido, se está rodando o
   worker para no próximo ponto de verificação (subprocessos como o FFmpeg são encerrados).
@@ -80,11 +83,25 @@ Etapas do pipeline (`app/pipeline/stages.py`):
 | Etapa | Estado |
 |---|---|
 | `prepare` — baixa o vídeo, confere tamanho e grava o SHA-256 | implementada |
-| `transcribe` | Etapa 4 — hoje falha com `stage_unavailable` |
+| `transcribe` — extrai o áudio (FFmpeg), transcreve e grava `transcript_segments` | implementada |
 | `analyze` | Etapa 5 — idem |
 | `render` | Etapa 6 — idem |
 
-Erros do worker: `stage_unavailable`, `source_missing`, `source_changed`, `storage_error`, `insufficient_disk`,
+### Transcrição
+
+Provedor escolhido por `TRANSCRIPTION_PROVIDER`:
+
+- `faster_whisper` (padrão): roda no worker, sem custo por minuto. O modelo (`WHISPER_MODEL`) é baixado do
+  Hugging Face na primeira execução; para baixar antes: `python -m app.transcription.download`.
+  O worker precisa acessar `huggingface.co` (e a CDN dele) só nessa primeira vez.
+- `openai`: envia MP3 mono 32 kbps para `POST {OPENAI_BASE_URL}/audio/transcriptions` (`verbose_json`, com
+  timestamps de segmento e palavra). Exige `OPENAI_API_KEY`. Limite de 25 MB (~100 min nesse formato).
+
+Os segmentos são normalizados antes de gravar: dentro de `[0, duração]`, em ordem, sem sobreposição e sem texto
+vazio. Reprocessar substitui a transcrição anterior. Vídeo sem fala → `no_speech`.
+
+Erros do worker: `no_speech`, `audio_extraction_failed`, `transcription_failed`, `transcription_unavailable`,
+`transcription_misconfigured`, `stage_unavailable`, `source_missing`, `source_changed`, `storage_error`, `insufficient_disk`,
 `stage_timeout`, `timeout`, `resource_limit`, `worker_lost`, `internal_error` (mensagem genérica ao usuário;
 detalhe técnico, sem segredos, em `processing_jobs.error_detail`).
 
@@ -147,7 +164,9 @@ O RQ depende de `fork()`, que não existe no Windows. Opções:
 
 Os testes usam o banco `autoclip_test` (criado automaticamente pelo `docker compose` na primeira subida), um
 emulador S3 local (moto, iniciado pelos próprios testes), um `redis-server` iniciado pelos testes e vídeos
-reais gerados com FFmpeg — portanto `ffmpeg` e `redis-server` precisam estar no PATH. No Windows, rode os
+reais gerados com FFmpeg — portanto `ffmpeg` e `redis-server` precisam estar no PATH. Os testes de transcrição
+real usam fala sintética do `espeak-ng` (só como dado de teste) e o modelo Whisper `tiny`; sem `espeak-ng` ou
+sem o modelo, esses testes são **pulados** (veja com `pytest -rs`). No Windows, rode os
 testes dentro do WSL2 (o worker com fork e os limites de recursos só existem em Linux/macOS):
 
 ```powershell

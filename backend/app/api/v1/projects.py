@@ -17,6 +17,8 @@ from app.schemas import (
     ProjectList,
     ProjectOut,
     ProjectStatusOut,
+    TranscriptOut,
+    TranscriptSegmentOut,
     UploadErrorResponse,
     UploadUrlOut,
     UploadUrlRequest,
@@ -91,6 +93,19 @@ def get_status(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Projec
     return ProjectStatusOut(id=p.id, status=p.status, progress=p.progress, status_message=p.status_message,
                             error_code=p.error_code, updated_at=p.updated_at,
                             job=JobOut.model_validate(job) if job else None)
+
+
+@router.get("/{project_id}/transcript", response_model=TranscriptOut, responses=NOT_FOUND,
+            summary="Transcrição do vídeo (segmentos com timestamps)")
+def get_transcript(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> TranscriptOut:
+    from sqlalchemy import select
+
+    from app.models import TranscriptSegment
+
+    p = _load(db, profile, project_id)
+    rows = db.scalars(select(TranscriptSegment).where(TranscriptSegment.project_id == p.id)
+                      .order_by(TranscriptSegment.seq)).all()
+    return TranscriptOut(project_id=p.id, segments=[TranscriptSegmentOut.model_validate(r) for r in rows])
 
 
 @router.post("/{project_id}/upload-url", response_model=UploadUrlOut, responses=UPLOAD_ERRORS,

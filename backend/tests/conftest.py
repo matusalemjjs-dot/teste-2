@@ -7,6 +7,8 @@ os.environ["ENVIRONMENT"] = "test"
 os.environ["SUPABASE_URL"] = "https://exemplo-teste.supabase.co"
 os.environ["SUPABASE_JWT_SECRET"] = "segredo-de-teste-apenas-local-com-32-bytes-ou-mais"
 os.environ["LOG_LEVEL"] = "WARNING"
+os.environ.setdefault("WHISPER_MODEL", "tiny")  # modelo pequeno para os testes
+os.environ.setdefault("WHISPER_BEAM_SIZE", "1")
 
 import socket  # noqa: E402
 
@@ -140,3 +142,29 @@ def alice() -> User:
 @pytest.fixture
 def bob() -> User:
     return User("bob@example.com")
+
+
+FALA = ("Olá, bem-vindos ao nosso podcast. Hoje vamos falar sobre inteligência artificial e vídeos curtos. "
+        "A primeira dica é começar com uma pergunta forte. A segunda dica é manter o ritmo.")
+
+
+@pytest.fixture(scope="session")
+def whisper_ready():
+    """Pula os testes de transcrição real se o modelo não puder ser carregado (ex.: sem rede na 1ª vez)."""
+    from app.core.config import get_settings
+    from app.transcription import TranscriptionError
+    from app.transcription.faster_whisper_provider import load_model
+    try:
+        load_model(get_settings())
+    except TranscriptionError as exc:
+        pytest.skip(f"Modelo Whisper indisponível: {exc.detail}")
+
+
+@pytest.fixture(scope="session")
+def speech_video(tmp_path_factory):
+    """Vídeo real com fala sintética em português (espeak-ng), usado só como dado de teste."""
+    import shutil
+    if not shutil.which("espeak-ng"):
+        pytest.skip("espeak-ng não instalado")
+    from tests.media import make_speech_video
+    return make_speech_video(tmp_path_factory.mktemp("fala") / "fala.mp4", FALA)

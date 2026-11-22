@@ -52,11 +52,27 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [ ] pend
 - [ ] Estouro real do limite de memória durante FFmpeg — não reproduzido em teste (o vídeo de teste é pequeno)
 - [ ] Worker nativo no Windows e worker em Docker — **não executados**
 
+## Etapa 4
+- [x] Áudio extraído com FFmpeg (WAV 16 kHz mono para o Whisper local, MP3 32 kbps para o serviço externo)
+- [x] Transcrição real com faster-whisper (`tiny`) de fala em português: timestamps em ordem, sem sobreposição,
+      dentro da duração; palavras-chave reconhecidas; silêncio final sem segmentos
+- [x] Segmentos e timestamps por palavra gravados em `transcript_segments`; `GET /transcript` com isolamento
+- [x] Reprocessar não duplica segmentos
+- [x] Vídeo sem fala → `no_speech`
+- [x] Provedor trocável por configuração; provedor inválido/sem chave → `transcription_misconfigured`
+- [x] Adaptador externo: requisição e resposta testadas contra servidor HTTP local (200, 400, 429, 500)
+- [ ] Adaptador externo contra a API real da OpenAI — **não executado** (requer chave)
+- [x] Cancelamento durante a transcrição não grava resultado
+- [x] Provedor indisponível não consome tentativas
+- [x] Worker real (fork) transcreve com limite de memória de 4 GB aplicado
+- [x] Desempenho medido (60 s de fala, CPU, 2 threads): `tiny` 3,1 s; `small` 9,2 s (+9 s de carga do modelo)
+- [ ] Vídeo real de 60 min — **não executado**; estimativa por extrapolação: ~9 min com `small`
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível
 - [x] Isolamento entre usuários (projetos)
-- [ ] Transcrição com timestamps coerentes (Etapa 4)
+- [x] Vídeo de teste transcrito com timestamps coerentes
 - [ ] Seleção por IA com candidatos válidos (Etapa 5)
 - [ ] Corte reproduzível e baixável em MP4 (Etapa 6)
 - [x] Falhas registradas sem travar o sistema
