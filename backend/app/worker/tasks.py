@@ -19,6 +19,7 @@ from app.pipeline.context import Canceled, JobContext, PipelineError
 from app.services import audit
 from app.services.jobs import mark_failed
 from app.services.projects import transition
+from app.worker.heartbeat import Heartbeat
 from app.worker.tmp import job_dir
 
 logger = logging.getLogger("autoclip.worker")
@@ -88,6 +89,7 @@ def process_project(job_id: str) -> str:
     pipeline = stages_mod.get_pipeline()
     total = sum(s.weight for s in pipeline) or 1
     log_event(logger, "Job iniciado", job_id=job_id, project_id=str(project_id))
+    heartbeat = Heartbeat(jid, settings.heartbeat_interval_seconds).__enter__()
     try:
         done = 0
         for stage in pipeline:
@@ -124,6 +126,7 @@ def process_project(job_id: str) -> str:
             raise  # KeyboardInterrupt/SystemExit: deixa o worker encerrar
         result = "failed"
     finally:
+        heartbeat.__exit__()
         shutil.rmtree(workdir, ignore_errors=True)
     log_event(logger, "Job finalizado", job_id=job_id, result=result)
     return result
@@ -175,14 +178,16 @@ def render_clip(job_id: str) -> str:
 
     workdir = job_dir(settings, job_id)
     ctx = JobContext(job_id=jid, project_id=project_id, owner_id=owner_id, workdir=workdir, settings=settings)
+    heartbeat = Heartbeat(jid, settings.heartbeat_interval_seconds).__enter__()
     try:
         prepare_source(ctx)
         render_one(ctx, clip_id, layout=opts.get("layout", settings.render_default_layout),
                    subtitles=bool(opts.get("subtitles", True)), version=version)
         with get_sessionmaker()() as db:
-            job = db.get(ProcessingJob, jid)
-            job.status, job.stage, job.finished_at = JobStatus.succeeded.value, "done", datetime.now(UTC)
-            audit.record(db, owner_id, "clip.rendered", "clip", clip_id, {"version": version})
+            job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == jid).with_for_update())
+            if job is not None and job.status == JobStatus.running.value:  # não sobrescreve falha já registrada
+                job.status, job.stage, job.finished_at = JobStatus.succeeded.value, "done", datetime.now(UTC)
+                audit.record(db, owner_id, "clip.rendered", "clip", clip_id, {"version": version})
             db.commit()
         result = "succeeded"
     except Canceled:
@@ -200,6 +205,7 @@ def render_clip(job_id: str) -> str:
             raise
         result = "failed"
     finally:
+        heartbeat.__exit__()
         shutil.rmtree(workdir, ignore_errors=True)
     log_event(logger, "Regeneração finalizada", job_id=job_id, result=result)
     return result

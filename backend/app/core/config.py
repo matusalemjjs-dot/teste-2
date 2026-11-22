@@ -54,7 +54,12 @@ class Settings(BaseSettings):
     worker_cpu_limit_seconds: int = 7200  # RLIMIT_CPU do processo do job (inclui FFmpeg)
     worker_min_free_disk_mb: int = 1024  # espaço livre que precisa sobrar após baixar o vídeo
     worker_tmp_max_age_hours: int = 6  # diretórios temporários órfãos mais antigos são apagados
-    stale_job_grace_seconds: int = 300  # margem além do timeout para considerar um job perdido
+    # Recuperação de jobs (manutenção periódica)
+    heartbeat_interval_seconds: float = 30  # o worker registra que está vivo neste intervalo
+    stale_heartbeat_seconds: int = 600  # sem sinal de vida por este tempo => job perdido (worker morto)
+    queue_reconcile_grace_seconds: int = 120  # job "na fila" mais novo que isso não é reconciliado
+    max_requeues: int = 3  # vezes que um job perdido da fila é devolvido antes de falhar
+    maintenance_interval_seconds: int = 300
     ffmpeg_threads: int = 2
 
     # Transcrição (provedor substituível por configuração)

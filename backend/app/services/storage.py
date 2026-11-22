@@ -33,6 +33,13 @@ def source_video_key(owner_id: uuid.UUID, project_id: uuid.UUID, asset_id: uuid.
     return f"users/{owner_id}/projects/{project_id}/source/{asset_id}.mp4"
 
 
+def validated_source_key(upload_key: str) -> str:
+    """Chave imutável do vídeo validado. Nenhuma URL de upload é emitida para ela (as URLs de upload só
+    apontam para `{asset_id}.mp4`), então o arquivo validado não pode ser trocado depois da validação."""
+    assert upload_key.endswith(".mp4")
+    return upload_key[: -len(".mp4")] + ".validated.mp4"
+
+
 def clip_key(owner_id: uuid.UUID, project_id: uuid.UUID, clip_id: uuid.UUID, version: int, ext: str) -> str:
     return f"users/{owner_id}/projects/{project_id}/clips/{clip_id}/v{version}.{ext}"
 
@@ -112,6 +119,13 @@ class Storage:
             self._internal.upload_file(str(path), self.bucket, key, ExtraArgs={"ContentType": content_type})
         except (ClientError, OSError) as exc:
             raise StorageError("Falha ao enviar arquivo ao armazenamento") from exc
+
+    def copy(self, src_key: str, dst_key: str) -> None:
+        """Cópia dentro do bucket (feita pelo provedor; arquivos grandes usam cópia em partes)."""
+        try:
+            self._internal.copy({"Bucket": self.bucket, "Key": src_key}, self.bucket, dst_key)
+        except Exception as exc:  # ClientError, falhas de transferência, conexão
+            raise StorageError("Falha ao copiar arquivo no armazenamento") from exc
 
     def delete(self, key: str) -> None:
         try:

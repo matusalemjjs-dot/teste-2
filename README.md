@@ -69,7 +69,9 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
    - exige faixa de vídeo e de áudio e duração entre `MIN_VIDEO_SECONDS` e `MAX_VIDEO_MINUTES`;
    - decodifica o início e o fim do vídeo para detectar arquivo corrompido ou truncado.
 
-   Se válido, o projeto passa para `uploaded`. Se inválido, o arquivo é **apagado**, o projeto continua em
+   A validação é feita sobre uma **cópia imutável** (`{asset}.validated.mp4`), criada antes da análise; a URL de
+   upload só alcança a chave original, então o arquivo validado não pode ser trocado depois. Se válido, o
+   projeto passa para `uploaded` e a chave original é apagada. Se inválido, o arquivo é **apagado**, o projeto continua em
    `pending` com `error_code`/`status_message` e o usuário pode tentar de novo.
 
 Códigos de erro: `invalid_extension`, `invalid_type`, `empty_file`, `file_too_large`, `too_short`, `too_long`,
@@ -151,7 +153,8 @@ US$ 0,30–0,80 por hora de vídeo com 200 janelas — **estimativa, não medida
   e é apagada depois. Se a regeneração falhar, a versão anterior é mantida.
 - **Downloads**: URLs assinadas emitidas só para o dono e só com o corte pronto; expiram em
   `DOWNLOAD_URL_EXPIRES_SECONDS` (padrão 5 min). Cada emissão gera um evento de auditoria.
-- Projeto com regeneração pendente não pode ser excluído (409) até terminar.
+- Projeto com regeneração **rodando** não pode ser excluído (409) até terminar; regeneração apenas na fila é
+  cancelada pela exclusão.
 
 ### Consumo, cotas e limite de requisições
 
@@ -180,6 +183,19 @@ Erros do worker: `render_failed`, `no_candidates`, `analysis_refused`, `analysis
 `transcription_misconfigured`, `stage_unavailable`, `source_missing`, `source_changed`, `storage_error`, `insufficient_disk`,
 `stage_timeout`, `timeout`, `resource_limit`, `worker_lost`, `internal_error` (mensagem genérica ao usuário;
 detalhe técnico, sem segredos, em `processing_jobs.error_detail`).
+
+**Recuperação de jobs** — `python -m app.worker.maintenance` (uma rodada) ou `--loop` (a cada
+`MAINTENANCE_INTERVAL_SECONDS`, padrão 5 min); também roda quando o worker inicia. Uma trava do Postgres impede
+duas rodadas ao mesmo tempo. A cada rodada:
+- jobs "na fila" no banco que sumiram do Redis (ex.: Redis reiniciado) voltam para a fila com o mesmo id —
+  o worker só executa jobs ainda "na fila", então nunca processa nem cobra duas vezes; depois de
+  `MAX_REQUEUES` devoluções o job falha com `queue_lost` (não consome tentativa);
+- jobs "rodando" sem sinal de vida há `STALE_HEARTBEAT_SECONDS` (padrão 10 min) são marcados `worker_lost`.
+  O sinal de vida é uma thread do processo do job que registra atividade a cada `HEARTBEAT_INTERVAL_SECONDS`;
+- diretórios temporários órfãos são apagados.
+
+**Exclusão de projeto** — trava o projeto; jobs ainda na fila (ex.: regeneração presa) são cancelados e o
+projeto é excluído; com job rodando, a resposta é 409 até ele terminar ou ser recuperado.
 
 Limites do worker: tempo total por job (`JOB_TIMEOUT_SECONDS`), tempo por subprocesso, memória (`RLIMIT_AS`),
 CPU (`RLIMIT_CPU`) e tamanho máximo de arquivo gerado (`RLIMIT_FSIZE`) aplicados ao processo de cada job
@@ -267,6 +283,13 @@ modo de teste de autenticação (token HS256 assinado pelo próprio teste; apare
 A única peça substituída é o avaliador de IA (o worker E2E usa o avaliador de teste, definido em
 `backend/tests/e2e/worker.py`, fora do código do produto). Requer o backend instalado (`backend/.venv`),
 PostgreSQL acessível com o usuário `autoclip`, `redis-server`, `ffmpeg` e `espeak-ng` — no Windows, rode no WSL2.
+
+### Caminhos protegidos
+
+`scripts/check_protected_paths.sh <referência>` falha se `backend/app/analysis`, `backend/app/transcription`,
+`backend/app/rendering` ou `backend/app/services/media_probe.py` mudaram desde a referência. Alterações
+nesses caminhos (seleção de melhores momentos, transcrição, renderização, validação de mídia) exigem
+aprovação explícita.
 
 ### Testes do backend
 

@@ -17,7 +17,7 @@ from app.models.enums import AssetKind, AssetStatus
 from app.models.enums import ProjectStatus as S
 from app.services import audit, media_probe
 from app.services.projects import transition
-from app.services.storage import Storage, StorageError, source_video_key
+from app.services.storage import Storage, StorageError, source_video_key, validated_source_key
 
 logger = logging.getLogger("autoclip.uploads")
 ALLOWED_CONTENT_TYPES = {"video/mp4"}
@@ -126,6 +126,13 @@ def _reject(db: Session, storage: Storage, project: Project, asset: MediaAsset, 
     db.commit()
 
 
+def _discard(storage: Storage, key: str) -> None:
+    try:
+        storage.delete(key)
+    except StorageError:
+        log_event(logger, "Falha ao remover arquivo (órfão para a retenção)", key_suffix=key.rsplit("/", 1)[-1])
+
+
 def finalize_upload(db: Session, settings: Settings, storage: Storage, owner_id: uuid.UUID,
                     project_id: uuid.UUID) -> FinalizeResult | None:
     project = _lock_project(db, project_id, owner_id)
@@ -156,6 +163,21 @@ def finalize_upload(db: Session, settings: Settings, storage: Storage, owner_id:
         raise UploadRejected("upload_missing", "O arquivo ainda não foi recebido. Envie o vídeo e tente novamente.",
                              409)
 
+    # F1: copia ANTES de validar e valida a cópia. A URL de upload (ainda válida por alguns minutos) só
+    # alcança a chave original; o arquivo validado e processado é a cópia, que não pode ser trocada.
+    upload_key = asset.storage_key
+    validated_key = validated_source_key(upload_key)
+    try:
+        storage.copy(upload_key, validated_key)
+        info = storage.head(validated_key)
+    except StorageError as exc:
+        _discard(storage, validated_key)
+        db.rollback()
+        raise media_probe.ProbeUnavailable("storage indisponível") from exc
+    if info is None:  # cópia não encontrada logo após copiar: trata como indisponibilidade
+        db.rollback()
+        raise media_probe.ProbeUnavailable("cópia validada ausente")
+
     try:
         if info.size_bytes <= 0:
             raise media_probe.ValidationFailed("empty_file", "O arquivo está vazio.")
@@ -163,24 +185,27 @@ def finalize_upload(db: Session, settings: Settings, storage: Storage, owner_id:
             raise media_probe.ValidationFailed("file_too_large",
                                                f"O arquivo excede o limite de {settings.max_upload_mb} MB.")
         try:
-            head = storage.read_range(asset.storage_key, 0, 63)
+            head = storage.read_range(validated_key, 0, 63)
         except StorageError as exc:
             raise media_probe.ProbeUnavailable("storage indisponível") from exc
         media_probe.check_mp4_signature(head)
-        source = storage.presign_get(asset.storage_key, settings.probe_timeout_seconds * 4, public=False)
+        source = storage.presign_get(validated_key, settings.probe_timeout_seconds * 4, public=False)
         result = media_probe.analyze(
             source, ffprobe_path=settings.ffprobe_path, ffmpeg_path=settings.ffmpeg_path,
             timeout=settings.probe_timeout_seconds, min_seconds=settings.min_video_seconds,
             max_seconds=settings.max_video_minutes * 60,
         )
     except media_probe.ValidationFailed as exc:
+        _discard(storage, validated_key)
         _reject(db, storage, project, asset, exc.code, exc.message)
         log_event(logger, "Upload rejeitado", project_id=str(project.id), code=exc.code)
         raise UploadRejected(exc.code, exc.message) from exc
     except media_probe.ProbeUnavailable:
+        _discard(storage, validated_key)
         db.rollback()
         raise
 
+    asset.storage_key = validated_key
     asset.status = AssetStatus.ready.value
     asset.size_bytes = info.size_bytes
     asset.content_type = "video/mp4"
@@ -195,5 +220,6 @@ def finalize_upload(db: Session, settings: Settings, storage: Storage, owner_id:
                  {"asset_id": str(asset.id), "duration_seconds": result.duration_seconds})
     db.commit()
     db.refresh(project)
+    _discard(storage, upload_key)  # o original não é mais usado; se falhar, vira órfão (limpo pela retenção)
     log_event(logger, "Upload validado", project_id=str(project.id), duration=result.duration_seconds)
     return FinalizeResult(project=project, asset=asset, already_finalized=False)

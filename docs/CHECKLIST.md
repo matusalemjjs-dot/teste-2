@@ -133,6 +133,23 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Acessibilidade da galeria com leitor de tela real — não testada (só verificação automática)
 - [ ] Frontend no Windows — não executado
 
+## Etapa 9 — Lote 1 (robustez para o beta)
+- [x] F1: validação feita sobre cópia imutável; troca do arquivo **depois** e **durante** a validação não chega
+      ao processamento (hash do vídeo processado = hash do enviado); validações simultâneas geram uma única cópia;
+      falha na cópia → 503 sem estado inválido; upload inválido remove original e cópia
+- [x] F2: Redis zerado → job devolvido à fila e processado uma única vez (uma cobrança); 3 manutenções
+      simultâneas → uma única devolução; job vivo na fila não é tocado; carência para jobs recém-criados;
+      limite de devoluções → `queue_lost` sem consumir tentativa; Redis fora do ar não quebra a manutenção
+- [x] F2b: job longo com sinal de vida não é marcado como perdido; job sem sinal de vida é detectado;
+      **worker real morto com SIGKILL** no meio de um job → detectado, reprocessado e cobrado uma única vez
+- [x] F3: regeneração presa na fila não bloqueia a exclusão (arquivos e linhas removidos; o worker ignora o job);
+      job rodando → 409 até terminar; projeto travado → 409; corrida exclusão × início do worker (4 rodadas)
+      sem exceção, job órfão ou arquivo esquecido
+- [x] Testes de recuperação estáveis em 4 execuções seguidas
+- [x] `scripts/check_protected_paths.sh` sem alterações nos caminhos protegidos (e falha quando há alteração)
+- [x] Mudança de comportamento aprovada: excluir projeto com regeneração **na fila** agora cancela e exclui
+      (antes: 409); com regeneração **rodando** continua 409
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível

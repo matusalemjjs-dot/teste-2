@@ -13,3 +13,15 @@ Cada etapa termina com testes automatizados executados e um relatório do que fo
 | 7 | Consumo: `usage_ledger` idempotente, quotas, rate limiting | M09 | **Concluída** |
 | 8 | Frontend Next.js: login/cadastro/recuperação (Supabase), dashboard, upload, galeria; testes Playwright | M01, M02, M08 | **Concluída** (login real pendente de projeto Supabase) |
 | 9 | Painel administrativo (falhas, filas, consumo, custos), retenção/exclusão automática (LGPD) | M10 | Próxima |
+
+## Etapa 9 — Beta fechado (10 convidados, 14 dias, vídeos de até 60 min)
+
+| Lote | Escopo | Estado |
+|---|---|---|
+| 1 | F1 (cópia imutável validada), F2 (reconciliação da fila e manutenção periódica), F2b (sinal de vida), F3 (exclusão com job preso), proteção de caminhos | **Concluído** |
+| 2 | Teste de capacidade (vídeo de 60 min, Whisper small, 1 e 2 workers) | Próximo |
+| 3 | Retenção (7/30 dias), exclusão de conta, página de transparência | Pendente |
+| 4 | Convites (Supabase + lista na API), limites do beta, reserva de custo, administração por linha de comando | Pendente |
+| 5 | Monitoramento: prontidão, alertas, relatório diário, cabeçalhos e CSP Report-Only, avaliação dos cortes | Pendente |
+| 6 | Implantação: VM com Docker Compose, HTTPS, armazenamento gerenciado, backup | Pendente (depende de provedores) |
+| 7 | Validações reais (Supabase, Claude, armazenamento) e checklist de liberação | Pendente (depende de chaves) |

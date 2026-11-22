@@ -8,12 +8,10 @@ from rq import Worker
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging, log_event
-from app.db.session import get_engine, get_sessionmaker
-from app.services.jobs import sweep_stale_jobs
+from app.db.session import get_engine
 from app.services.queue import get_queue, get_redis
 from app.worker.limits import apply_limits
 from app.worker.tasks import on_work_horse_killed
-from app.worker.tmp import cleanup_stale
 
 logger = logging.getLogger("autoclip.worker")
 
@@ -30,10 +28,9 @@ class LimitedWorker(Worker):
 
 
 def maintenance() -> dict:
-    settings = get_settings()
-    with get_sessionmaker()() as db:
-        stale = sweep_stale_jobs(db, settings)
-    return {"stale_jobs_failed": stale, "tmp_dirs_removed": cleanup_stale(settings)}
+    from app.worker.maintenance import run_maintenance
+
+    return run_maintenance(get_settings())
 
 
 def build_worker() -> Worker:

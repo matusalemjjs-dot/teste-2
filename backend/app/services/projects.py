@@ -97,12 +97,35 @@ def cancel_project(db: Session, project: Project) -> Project:
 
 
 def delete_project(db: Session, storage: Storage, project: Project) -> None:
-    """Remove primeiro os arquivos do storage; se falhar, nada é apagado do banco (StorageError)."""
-    from app.services.jobs import active_job_exists
+    """Remove primeiro os arquivos do storage; se falhar, nada é apagado do banco (StorageError).
+    Trava o projeto (serializa com o worker e com pedidos simultâneos). Jobs na fila (ex.: regeneração
+    presa) são cancelados; com job rodando, recusa até ele terminar ou ser recuperado."""
+    from sqlalchemy.exc import OperationalError
 
-    if S(project.status) not in DELETABLE or active_job_exists(db, project.id):
+    from app.services import queue
+    from app.services.jobs import JobRunning, queued_job_ids_for_delete
+
+    try:
+        db.refresh(project, with_for_update={"nowait": True})
+    except OperationalError as exc:
+        db.rollback()
+        raise InvalidTransition(S(project.status), S.canceled) from exc
+    if S(project.status) not in DELETABLE:
+        db.rollback()
         raise InvalidTransition(S(project.status), S.canceled)
-    removed = storage.delete_prefix(project_prefix(project.owner_id, project.id))
-    audit.record(db, project.owner_id, "project.delete", "project", project.id, {"files_removed": removed})
+    try:
+        queued = queued_job_ids_for_delete(db, project.id)
+    except JobRunning as exc:
+        db.rollback()
+        raise InvalidTransition(S(project.status), S.canceled) from exc
+    try:
+        removed = storage.delete_prefix(project_prefix(project.owner_id, project.id))
+    except Exception:
+        db.rollback()
+        raise
+    audit.record(db, project.owner_id, "project.delete", "project", project.id,
+                 {"files_removed": removed, "queued_jobs_canceled": len(queued)})
     db.delete(project)
     db.commit()
+    for job_id in queued:  # o worker também ignoraria (o job não existe mais no banco)
+        queue.cancel_queued(str(job_id))

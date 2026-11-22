@@ -21,7 +21,7 @@ logger = logging.getLogger("autoclip.jobs")
 # Falhas de infraestrutura não consomem as tentativas do usuário.
 INFRA_ERROR_CODES = {"queue_unavailable", "worker_lost", "insufficient_disk", "stage_unavailable", "storage_error",
                      "transcription_unavailable", "transcription_misconfigured", "analysis_unavailable",
-                     "analysis_misconfigured"}
+                     "analysis_misconfigured", "queue_lost"}
 ACTIVE = (JobStatus.queued.value, JobStatus.running.value)
 
 
@@ -156,16 +156,82 @@ def cancel_active_job(db: Session, project_id: uuid.UUID) -> None:
 
 
 def sweep_stale_jobs(db: Session, settings: Settings, now: datetime | None = None) -> int:
-    """Marca como falhos os jobs 'running' cujo worker morreu (sem atualização além do timeout)."""
+    """Marca como falhos os jobs 'running' sem sinal de vida (worker morto: queda da máquina, SIGKILL,
+    falta de memória). O worker vivo registra atividade a cada `heartbeat_interval_seconds`."""
     now = now or datetime.now(UTC)
-    limit = now - timedelta(seconds=settings.job_timeout_seconds + settings.stale_job_grace_seconds)
+    limit = now - timedelta(seconds=settings.stale_heartbeat_seconds)
     stale = db.scalars(select(ProcessingJob.id).where(ProcessingJob.status == JobStatus.running.value,
                                                       ProcessingJob.updated_at < limit)).all()
     db.rollback()
     for job_id in stale:
         mark_failed(db, job_id, "worker_lost",
-                    "O processamento foi interrompido inesperadamente. Tente novamente.", detail="stale sweep")
+                    "O processamento foi interrompido inesperadamente. Tente novamente.", detail="sem sinal de vida")
     return len(stale)
+
+
+TASK_BY_TYPE = {JobType.process_project.value: queue.PROCESS_TASK, JobType.render_clip.value: queue.RENDER_CLIP_TASK}
+RQ_ALIVE = {"queued", "started", "deferred", "scheduled"}
+
+
+def reconcile_queued(db: Session, settings: Settings, now: datetime | None = None) -> dict:
+    """Jobs 'queued' no banco que não estão vivos no Redis (Redis reiniciado, fila apagada) são devolvidos
+    à fila com o MESMO id. É seguro repetir: o worker só executa jobs que ainda estão 'queued' no banco.
+    Depois de `max_requeues` devoluções, o job falha com `queue_lost` (não consome tentativa do usuário)."""
+    from rq.exceptions import NoSuchJobError
+    from rq.job import Job
+
+    now = now or datetime.now(UTC)
+    limit = now - timedelta(seconds=settings.queue_reconcile_grace_seconds)
+    ids = db.scalars(select(ProcessingJob.id).where(ProcessingJob.status == JobStatus.queued.value,
+                                                    ProcessingJob.updated_at < limit)).all()
+    db.rollback()
+    result = {"checked": len(ids), "requeued": 0, "lost": 0}
+    redis = queue.get_redis()
+    for job_id in ids:
+        try:
+            alive = Job.fetch(str(job_id), connection=redis).get_status() in RQ_ALIVE
+        except NoSuchJobError:
+            alive = False
+        if alive:
+            continue
+        job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == job_id,
+                                                    ProcessingJob.status == JobStatus.queued.value)
+                        .with_for_update(skip_locked=True))
+        if job is None:  # mudou de estado ou está travado por outra operação
+            db.rollback()
+            continue
+        requeues = int((job.options or {}).get("requeues", 0))
+        if requeues >= settings.max_requeues:
+            db.rollback()
+            mark_failed(db, job_id, "queue_lost", "O processamento se perdeu na fila. Tente novamente.",
+                        detail=f"requeues={requeues}")
+            result["lost"] += 1
+            continue
+        try:  # envia ANTES de gravar: se o Redis falhar, nada muda e a próxima rodada tenta de novo
+            queue.enqueue_task(TASK_BY_TYPE[job.job_type], str(job_id))
+        except queue.QueueUnavailable:
+            db.rollback()
+            raise
+        job.options = {**(job.options or {}), "requeues": requeues + 1}
+        audit.record(db, job.owner_id, "job.requeued", "processing_job", job.id, {"requeues": requeues + 1})
+        db.commit()
+        result["requeued"] += 1
+        log_event(logger, "Job devolvido à fila", job_id=str(job_id), requeues=requeues + 1)
+    return result
+
+
+def queued_job_ids_for_delete(db: Session, project_id: uuid.UUID) -> list[uuid.UUID]:
+    """Para excluir um projeto: trava os jobs ativos; recusa se algum estiver rodando; devolve os da fila
+    (o chamador cancela no Redis depois do commit; no banco eles somem junto com o projeto)."""
+    jobs = db.scalars(select(ProcessingJob).where(ProcessingJob.project_id == project_id,
+                                                  ProcessingJob.status.in_(ACTIVE)).with_for_update()).all()
+    if any(j.status == JobStatus.running.value for j in jobs):
+        raise JobRunning()
+    return [j.id for j in jobs]
+
+
+class JobRunning(Exception):
+    pass
 
 
 def active_job_exists(db: Session, project_id: uuid.UUID) -> bool:

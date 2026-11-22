@@ -222,8 +222,7 @@ def test_regenerar_corte(client, alice, projeto_concluido):
     assert r1.json()["job"]["id"] == r2.json()["job"]["id"] and r2.json()["created"] is False
     # enquanto não termina, a versão anterior continua baixável
     assert client.post(f"/api/v1/clips/{c['id']}/download-url", headers=alice.headers, json={}).status_code == 200
-    # projeto não pode ser excluído com regeneração pendente
-    assert client.delete(f"/api/v1/projects/{pid}", headers=alice.headers).status_code == 409
+    # (exclusão com regeneração na fila/rodando: coberta em tests/test_recuperacao.py)
     worker()
     new = client.get(f"/api/v1/clips/{c['id']}", headers=alice.headers).json()
     assert new["status"] == "ready" and new["render_version"] == 2 and new["layout"] == "blur_background"
