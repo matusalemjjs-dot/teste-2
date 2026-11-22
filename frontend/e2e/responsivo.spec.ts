@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { login } from "./helpers";
 
-for (const rota of ["/", "/entrar", "/painel", "/projetos/novo"]) {
+for (const rota of ["/", "/entrar", "/painel", "/projetos/novo", "/privacidade", "/conta"]) {
   test(`sem rolagem horizontal no celular: ${rota}`, async ({ page }) => {
     await login(page);
     await page.goto(rota);

@@ -21,6 +21,7 @@ from app.schemas import (
     ProjectList,
     ProjectOut,
     ProjectStatusOut,
+    RetentionOut,
     TranscriptOut,
     TranscriptSegmentOut,
     UploadErrorResponse,
@@ -108,10 +109,13 @@ def get_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Proje
             summary="Status e progresso do processamento")
 def get_status(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> ProjectStatusOut:
     p = _load(db, profile, project_id)
+    from app.services.retention import retention_dates
+
     job = jobs_svc.latest_job(db, p.id)
     return ProjectStatusOut(id=p.id, status=p.status, progress=p.progress, status_message=p.status_message,
                             error_code=p.error_code, updated_at=p.updated_at,
-                            job=JobOut.model_validate(job) if job else None)
+                            job=JobOut.model_validate(job) if job else None,
+                            retention=RetentionOut(**retention_dates(db, p, get_settings())))
 
 
 @router.get("/{project_id}/transcript", response_model=TranscriptOut, responses=NOT_FOUND,

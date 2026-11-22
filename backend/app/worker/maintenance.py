@@ -22,6 +22,38 @@ from app.worker.tmp import cleanup_stale
 
 logger = logging.getLogger("autoclip.maintenance")
 LOCK_KEY = 7_202_611_001  # identificador fixo da trava de manutenção
+RETENTION_LOCK_KEY = 7_202_611_002
+RETENTION_LAST_KEY = "autoclip:retention:last_run"
+
+
+def run_retention_locked(settings: Settings | None = None, now=None) -> dict:
+    """Uma rodada de retenção, protegida por trava própria (nunca duas ao mesmo tempo)."""
+    from dataclasses import asdict
+
+    from app.services.retention import run_retention
+    from app.services.storage import get_storage
+
+    settings = settings or get_settings()
+    with get_engine().connect() as conn:
+        if not conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": RETENTION_LOCK_KEY}).scalar():
+            return {"skipped": True}
+        try:
+            with get_sessionmaker()() as db:
+                return {"skipped": False, **asdict(run_retention(db, get_storage(), settings, now=now))}
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": RETENTION_LOCK_KEY})
+            conn.commit()
+
+
+def retention_due(settings: Settings) -> bool:
+    """A retenção roda no máximo a cada RETENTION_INTERVAL_HOURS (marcador no Redis; se o Redis perder o
+    marcador, ela roda de novo — é idempotente)."""
+    from app.services.queue import get_redis
+
+    try:
+        return bool(get_redis().set(RETENTION_LAST_KEY, "1", nx=True, ex=settings.retention_interval_hours * 3600))
+    except Exception:
+        return False
 
 
 def run_maintenance(settings: Settings | None = None) -> dict:
@@ -47,12 +79,19 @@ def run_maintenance(settings: Settings | None = None) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manutenção do AutoClip IA")
     parser.add_argument("--loop", action="store_true", help="repete a cada MAINTENANCE_INTERVAL_SECONDS")
+    parser.add_argument("--retencao", action="store_true", help="roda a retenção agora (além da manutenção)")
     args = parser.parse_args()
     settings = get_settings()
     configure_logging(settings.log_level)
     while True:
         try:
             log_event(logger, "Manutenção executada", **run_maintenance(settings))
+            if args.retencao:
+                log_event(logger, "Retenção executada (manual)", **run_retention_locked(settings))
+            elif retention_due(settings):
+                report = run_retention_locked(settings)
+                log_event(logger, "Retenção executada", **{k: v for k, v in report.items() if k != "failures"},
+                          failures=len(report.get("failures", [])))
         except Exception:
             logger.exception("Falha na manutenção")
         if not args.loop:

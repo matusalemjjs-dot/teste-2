@@ -33,6 +33,10 @@ def get_current_profile(user: Annotated[AuthUser, Depends(get_auth_user)], db: D
     """Garante que o perfil exista (criado no primeiro acesso) de forma idempotente."""
     profile = db.get(Profile, user.id)
     if profile is None:
+        from app.services.account import was_deleted
+
+        if was_deleted(db, user.id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Esta conta foi excluída.")
         db.execute(insert(Profile).values(id=user.id, email=user.email).on_conflict_do_nothing())
         settings = get_settings()
         db.execute(insert(Subscription).values(

@@ -33,7 +33,7 @@ ENV = {
     "QUOTAS_ENABLED": "false", "ANTHROPIC_API_KEY": "", "WORKER_TMP_DIR": TMP,
     # valores de PRODUÇÃO (padrões do .env.example), explícitos para o relatório
     "WHISPER_MODEL": "small", "WHISPER_BEAM_SIZE": "5", "WHISPER_CPU_THREADS": "2", "FFMPEG_THREADS": "2",
-    "RENDER_PRESET": "veryfast", "WORKER_MEMORY_LIMIT_MB": "4096", "JOB_TIMEOUT_SECONDS": "3600",
+    "RENDER_PRESET": "veryfast", "WORKER_MEMORY_LIMIT_MB": "8192", "JOB_TIMEOUT_SECONDS": "3600",
 }
 # Permite variar o limite de memória do job sem mudar código: CAP_WORKER_MEMORY_LIMIT_MB=8192 python -m ...
 ENV["WORKER_MEMORY_LIMIT_MB"] = os.environ.get("CAP_WORKER_MEMORY_LIMIT_MB", ENV["WORKER_MEMORY_LIMIT_MB"])

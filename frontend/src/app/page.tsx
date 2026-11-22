@@ -2,8 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+
+function AvisoContaExcluida() {
+  const aviso = useSearchParams().get("conta_excluida");
+  if (!aviso) return null;
+  return <div role="status" className="mb-8 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm
+    text-emerald-900">{aviso}</div>;
+}
 
 export default function Home() {
   const { ready, token } = useAuth();
@@ -11,6 +19,7 @@ export default function Home() {
   useEffect(() => { if (ready && token) router.replace("/painel"); }, [ready, token, router]);
   return (
     <main id="conteudo" className="mx-auto max-w-3xl px-4 py-16 text-center">
+      <Suspense fallback={null}><AvisoContaExcluida /></Suspense>
       <h1 className="text-3xl font-bold sm:text-4xl">Transforme vídeos longos em cortes curtos</h1>
       <p className="mx-auto mt-4 max-w-xl text-lg text-slate-700">
         Envie um vídeo de até 60 minutos. O AutoClip IA transcreve a fala, encontra os melhores momentos e gera

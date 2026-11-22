@@ -15,8 +15,10 @@ type AuthState = {
   signUp: (email: string, password: string) => Promise<string | null>;
   sendReset: (email: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
-  signOut: () => Promise<void>;
+  /** Sai da conta. Com `redirectTo`, navega para lá sem que as rotas protegidas mandem para o login antes. */
+  signOut: (redirectTo?: string) => Promise<void>;
   recovery: boolean;
+  leaving: boolean;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -55,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [testToken, setTestToken] = useState<string | null>(null);
   const [recovery, setRecovery] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const testMode = AUTH_MODE === "test";
   const client = testMode ? null : getSupabase();
 
@@ -112,7 +115,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return error ? translate(error.message) : null;
   }, [client]);
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (redirectTo?: string) => {
+    if (redirectTo) setLeaving(true);
+    const go = () => { if (redirectTo) window.location.replace(redirectTo); };
     if (testMode) {
       try {
         window.localStorage.removeItem(TEST_TOKEN_KEY);
@@ -120,18 +125,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         /* ignorado */
       }
       setTestToken(null);
+      go();
       return;
     }
     await client?.auth.signOut();
+    go();
   }, [client, testMode]);
 
   const token = testMode ? testToken : session?.access_token ?? null;
   const value = useMemo<AuthState>(() => ({
-    ready, token, testMode, recovery,
+    ready, token, testMode, recovery, leaving,
     configured: testMode || client !== null,
     email: testMode ? (token ? decodeEmail(token) : null) : session?.user.email ?? null,
     signIn, signUp, sendReset, updatePassword, signOut,
-  }), [ready, token, testMode, recovery, client, session, signIn, signUp, sendReset, updatePassword, signOut]);
+  }), [ready, token, testMode, recovery, leaving, client, session, signIn, signUp, sendReset, updatePassword, signOut]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

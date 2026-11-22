@@ -76,6 +76,19 @@ class ProjectList(BaseModel):
     offset: int
 
 
+class RetentionOut(BaseModel):
+    source_available: bool = Field(description="O vídeo original ainda existe (permite regenerar cortes)")
+    source_expires_at: datetime | None = Field(description="Quando o vídeo original será apagado")
+    project_expires_at: datetime | None = Field(description="Quando o projeto inteiro será apagado")
+
+
+class AccountDeletionOut(BaseModel):
+    projects_deleted: int
+    files_deleted: int
+    auth_account_deleted: bool
+    message: str
+
+
 class ProjectStatusOut(BaseModel):
     id: uuid.UUID
     status: ProjectStatus
@@ -84,6 +97,7 @@ class ProjectStatusOut(BaseModel):
     error_code: str | None
     updated_at: datetime
     job: "JobOut | None" = None
+    retention: RetentionOut | None = None
 
 
 class UploadUrlRequest(BaseModel):

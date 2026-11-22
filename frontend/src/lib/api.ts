@@ -7,9 +7,16 @@ export type Project = {
   error_code: string | null; source_duration_seconds: number | null; created_at: string; updated_at: string;
 };
 export type Job = { id: string; status: string; stage: string | null; attempts: number; error_code: string | null };
+export type Retention = { source_available: boolean; source_expires_at: string | null; project_expires_at: string | null };
+export type Policy = {
+  retencao: { video_original_dias: number; projeto_dias: number; projeto_sem_video_horas: number; auditoria_dias: number };
+  limites: { video_max_minutos: number; upload_max_mb: number };
+  suboperadores: { nome: string; finalidade: string }[];
+  contato: string | null; transcricao_local: boolean; texto_juridico_revisado: boolean;
+};
 export type ProjectStatusOut = {
   id: string; status: ProjectStatus; progress: number; status_message: string | null; error_code: string | null;
-  updated_at: string; job: Job | null;
+  updated_at: string; job: Job | null; retention: Retention | null;
 };
 export type Usage = {
   plan: string; quota_minutes: number; used_minutes: number; reserved_minutes: number; remaining_minutes: number;

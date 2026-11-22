@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Header, TestModeBanner } from "@/components/app-shell";
+import { Footer, Header, TestModeBanner } from "@/components/app-shell";
 import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
@@ -18,6 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <TestModeBanner />
           <Header />
           {children}
+          <Footer />
         </AuthProvider>
       </body>
     </html>

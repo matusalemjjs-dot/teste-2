@@ -36,7 +36,7 @@ export default function Cadastro() {
             hint="Mínimo de 8 caracteres." required />
           <Field id="confirmacao" name="confirmacao" type="password" label="Confirme a senha" autoComplete="new-password" required />
           <p className="text-sm text-slate-600">Ao criar a conta, você concorda em enviar apenas vídeos que tem
-            direito de processar. Seus dados são tratados conforme a LGPD.</p>
+            direito de processar. Veja <Link className="underline" href="/privacidade">como tratamos seus dados</Link>.</p>
           <Button type="submit" disabled={busy} className="w-full">{busy ? "Criando…" : "Criar conta"}</Button>
         </form>
       )}

@@ -12,6 +12,8 @@ test("envio, processamento real, galeria, reprodução, download e regeneração
   await expect(page).toHaveURL(/\/projetos\/[0-9a-f-]{36}$/, { timeout: 60_000 });
   await expect(page.getByText("Concluído", { exact: true })).toBeVisible({ timeout: 200_000 });
   await expect(page.getByText(/cortes gerados/)).toBeVisible();
+  await expect(page.getByTestId("retencao")).toContainText("O vídeo original será apagado em");
+  await expect(page.getByTestId("retencao")).toContainText("O projeto e os cortes serão apagados em");
 
   const cards = page.getByTestId("clip");
   await expect(cards.first()).toBeVisible();

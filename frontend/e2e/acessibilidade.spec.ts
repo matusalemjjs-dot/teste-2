@@ -8,7 +8,7 @@ async function semViolacoesGraves(page: import("@playwright/test").Page) {
   expect(graves.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 }
 
-for (const rota of ["/", "/entrar", "/cadastro", "/recuperar-senha"]) {
+for (const rota of ["/", "/entrar", "/cadastro", "/recuperar-senha", "/privacidade"]) {
   test(`acessibilidade (WCAG A/AA) em ${rota}`, async ({ page }) => {
     await page.goto(rota);
     await semViolacoesGraves(page);
@@ -21,5 +21,8 @@ test("acessibilidade no painel e no novo projeto", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Painel" })).toBeVisible();
   await semViolacoesGraves(page);
   await novoProjeto(page, "Acessível");
+  await semViolacoesGraves(page);
+  await page.goto("/conta");
+  await expect(page.getByRole("heading", { name: "Minha conta" })).toBeVisible();
   await semViolacoesGraves(page);
 });

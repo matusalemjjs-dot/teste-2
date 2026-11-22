@@ -25,6 +25,19 @@ from app.worker.tmp import job_dir
 logger = logging.getLogger("autoclip.worker")
 
 
+MEMORY_SIGNS = ("bad_alloc", "MemoryError", "Cannot allocate memory", "out of memory")
+MEMORY_MESSAGE = "O processamento excedeu o limite de memória do servidor. Tente novamente mais tarde."
+
+
+def classify(exc) -> tuple[str, str]:
+    """Falhas de memória vindas de bibliotecas (Whisper/ONNX, FFmpeg) chegam como erros genéricos da etapa;
+    são reclassificadas como `resource_limit` (infraestrutura: não consome tentativa do usuário)."""
+    detail = exc.detail or ""
+    if any(sign in detail for sign in MEMORY_SIGNS):
+        return "resource_limit", MEMORY_MESSAGE
+    return exc.code, exc.message
+
+
 def _start(job_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID] | None:
     """Passa job->running e projeto->processing. Retorna None se não houver nada a fazer (idempotência)."""
     with get_sessionmaker()() as db:
@@ -107,8 +120,9 @@ def process_project(job_id: str) -> str:
         _finish_canceled(jid)
         result = "canceled"
     except PipelineError as exc:
+        code, message = classify(exc)
         with get_sessionmaker()() as db:
-            mark_failed(db, jid, exc.code, exc.message, redact(exc.detail) if exc.detail else None)
+            mark_failed(db, jid, code, message, redact(exc.detail) if exc.detail else None)
         result = "failed"
     except BaseException as exc:  # inclui JobTimeoutException do RQ
         from rq.timeouts import JobTimeoutException
@@ -116,7 +130,7 @@ def process_project(job_id: str) -> str:
         if isinstance(exc, JobTimeoutException):
             code, msg = "timeout", "O processamento excedeu o tempo máximo permitido."
         elif isinstance(exc, MemoryError):
-            code, msg = "resource_limit", "O processamento excedeu o limite de memória."
+            code, msg = "resource_limit", MEMORY_MESSAGE
         else:
             code, msg = "internal_error", "Ocorreu um erro inesperado no processamento. Tente novamente."
         logger.exception("Falha no job", extra={"extra_fields": {"job_id": job_id, "code": code}})
@@ -194,8 +208,9 @@ def render_clip(job_id: str) -> str:
         _finish_canceled(jid)
         result = "canceled"
     except (PipelineError, RenderError) as exc:
+        code, message = classify(exc)
         with get_sessionmaker()() as db:
-            mark_failed(db, jid, exc.code, exc.message, redact(exc.detail) if exc.detail else None)
+            mark_failed(db, jid, code, message, redact(exc.detail) if exc.detail else None)
         result = "failed"
     except BaseException as exc:
         with get_sessionmaker()() as db:

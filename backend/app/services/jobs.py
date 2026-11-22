@@ -21,7 +21,7 @@ logger = logging.getLogger("autoclip.jobs")
 # Falhas de infraestrutura não consomem as tentativas do usuário.
 INFRA_ERROR_CODES = {"queue_unavailable", "worker_lost", "insufficient_disk", "stage_unavailable", "storage_error",
                      "transcription_unavailable", "transcription_misconfigured", "analysis_unavailable",
-                     "analysis_misconfigured", "queue_lost"}
+                     "analysis_misconfigured", "queue_lost", "resource_limit"}
 ACTIVE = (JobStatus.queued.value, JobStatus.running.value)
 
 
@@ -242,14 +242,21 @@ def active_job_exists(db: Session, project_id: uuid.UUID) -> bool:
 def request_regenerate(db: Session, owner_id: uuid.UUID, clip_id: uuid.UUID, layout: str,
                        subtitles: bool) -> tuple[ProcessingJob, bool] | None:
     """Idempotente: com uma regeneração do mesmo corte na fila/em andamento, devolve o job existente."""
+    project_id = db.scalar(select(Clip.project_id).where(Clip.id == clip_id, Clip.owner_id == owner_id))
+    if project_id is None:
+        return None
+    # Ordem fixa de travas: PROJETO antes do CORTE (a mesma da retenção e da exclusão), para não haver deadlock.
+    # FOR SHARE: a retenção (FOR UPDATE NOWAIT) pula o projeto enquanto este pedido estiver aberto, ou este
+    # pedido espera a retenção terminar e então vê que o original expirou.
+    project = db.scalar(select(Project).where(Project.id == project_id).with_for_update(read=True))
     try:
         clip = db.scalar(select(Clip).where(Clip.id == clip_id, Clip.owner_id == owner_id).with_for_update(nowait=True))
     except OperationalError as exc:
         db.rollback()
         raise Busy() from exc
-    if clip is None:
+    if clip is None or project is None:
+        db.rollback()
         return None
-    project = db.get(Project, clip.project_id)
     active = db.scalar(select(ProcessingJob).where(ProcessingJob.clip_id == clip.id,
                                                    ProcessingJob.status.in_(ACTIVE)))
     if active is not None:
@@ -258,6 +265,13 @@ def request_regenerate(db: Session, owner_id: uuid.UUID, clip_id: uuid.UUID, lay
     if S(project.status) != S.completed:
         db.rollback()
         raise ProcessRejected("invalid_state", "Só é possível regenerar cortes de projetos concluídos.")
+    from app.services.retention import source_available
+
+    if not source_available(db, project.id):
+        db.rollback()
+        raise ProcessRejected("source_expired", "O vídeo original deste projeto já foi apagado pela política de "
+                                                "retenção. Os cortes continuam disponíveis, mas não podem ser "
+                                                "regenerados.")
     n = db.scalar(select(func.count()).select_from(ProcessingJob).where(ProcessingJob.clip_id == clip.id)) or 0
     job = ProcessingJob(project_id=project.id, owner_id=owner_id, clip_id=clip.id,
                         job_type=JobType.render_clip.value, status=JobStatus.queued.value,

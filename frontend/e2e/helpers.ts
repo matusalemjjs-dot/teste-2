@@ -19,7 +19,13 @@ export async function token(email: string, sub = randomUUID()): Promise<string> 
 
 export async function login(page: Page, email = `usuario-${randomUUID().slice(0, 8)}@exemplo.com`) {
   const t = await token(email);
-  await page.addInitScript((value) => window.localStorage.setItem("autoclip_test_token", value), t);
+  // injeta uma única vez por aba (sair da conta precisa de fato remover o token)
+  await page.addInitScript((value) => {
+    if (!window.sessionStorage.getItem("autoclip_test_injected")) {
+      window.localStorage.setItem("autoclip_test_token", value);
+      window.sessionStorage.setItem("autoclip_test_injected", "1");
+    }
+  }, t);
   return { email, token: t };
 }
 

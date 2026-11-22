@@ -50,7 +50,9 @@ class Settings(BaseSettings):
     job_timeout_seconds: int = 3600  # tempo máximo de um processamento completo
     max_process_attempts: int = 3  # tentativas que falharam por causa do arquivo/processamento
     worker_tmp_dir: str | None = None  # padrão: <tmp do sistema>/autoclip
-    worker_memory_limit_mb: int = 4096  # RLIMIT_AS do processo do job (Linux/macOS)
+    # RLIMIT_AS (memória VIRTUAL) do processo do job (Linux/macOS). Whisper/ONNX reservam muito espaço virtual:
+    # vídeo de 60 min com o modelo small = 4,3 GB reais e 7,5 GB virtuais (docs/CAPACIDADE.md).
+    worker_memory_limit_mb: int = 8192
     worker_cpu_limit_seconds: int = 7200  # RLIMIT_CPU do processo do job (inclui FFmpeg)
     worker_min_free_disk_mb: int = 1024  # espaço livre que precisa sobrar após baixar o vídeo
     worker_tmp_max_age_hours: int = 6  # diretórios temporários órfãos mais antigos são apagados
@@ -60,6 +62,21 @@ class Settings(BaseSettings):
     queue_reconcile_grace_seconds: int = 120  # job "na fila" mais novo que isso não é reconciliado
     max_requeues: int = 3  # vezes que um job perdido da fila é devolvido antes de falhar
     maintenance_interval_seconds: int = 300
+
+    # Retenção e privacidade (LGPD)
+    retention_enabled: bool = True
+    retention_source_days: int = 7  # vídeo original, transcrição e candidatos: N dias após a conclusão
+    retention_project_days: int = 30  # projeto inteiro (cortes incluídos): N dias após a conclusão/última atividade
+    retention_abandoned_hours: int = 24  # projeto sem vídeo enviado
+    retention_orphan_hours: int = 24  # arquivo no storage sem registro no banco
+    retention_error_detail_days: int = 30  # detalhe técnico de erros (o código do erro é mantido)
+    retention_audit_days: int = 365
+    retention_interval_hours: int = 24
+    supabase_service_role_key: SecretStr | None = None  # SOMENTE no backend: excluir a conta de login
+    supabase_admin_url: str | None = None  # padrão: SUPABASE_URL (só muda em testes/proxies)
+    support_email: str | None = None  # contato exibido na página de privacidade
+    storage_provider_name: str = "a definir"  # nome do provedor de armazenamento (página de privacidade)
+    hosting_provider_name: str = "a definir"
     ffmpeg_threads: int = 2
 
     # Transcrição (provedor substituível por configuração)

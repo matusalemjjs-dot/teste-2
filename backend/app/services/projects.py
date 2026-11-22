@@ -97,9 +97,15 @@ def cancel_project(db: Session, project: Project) -> Project:
 
 
 def delete_project(db: Session, storage: Storage, project: Project) -> None:
-    """Remove primeiro os arquivos do storage; se falhar, nada é apagado do banco (StorageError).
-    Trava o projeto (serializa com o worker e com pedidos simultâneos). Jobs na fila (ex.: regeneração
-    presa) são cancelados; com job rodando, recusa até ele terminar ou ser recuperado."""
+    """Exclusão pedida pelo usuário. Ver `purge_project`."""
+    purge_project(db, storage, project, actor_id=project.owner_id, action="project.delete")
+
+
+def purge_project(db: Session, storage: Storage, project: Project, *, actor_id: uuid.UUID | None,
+                  action: str) -> None:
+    """Remove primeiro os arquivos do storage; se falhar, nada é apagado do banco (StorageError) e a operação
+    pode ser repetida. Trava o projeto sem esperar (serializa com o worker, regeneração e retenção). Jobs na
+    fila são cancelados; com job rodando, recusa (InvalidTransition) até ele terminar ou ser recuperado."""
     from sqlalchemy.exc import OperationalError
 
     from app.services import queue
@@ -123,7 +129,7 @@ def delete_project(db: Session, storage: Storage, project: Project) -> None:
     except Exception:
         db.rollback()
         raise
-    audit.record(db, project.owner_id, "project.delete", "project", project.id,
+    audit.record(db, actor_id, action, "project", project.id,
                  {"files_removed": removed, "queued_jobs_canceled": len(queued)})
     db.delete(project)
     db.commit()

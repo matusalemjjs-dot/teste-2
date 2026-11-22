@@ -76,7 +76,8 @@ services:
       - whispermodels:/models
     deploy:
       resources:
-        limits: {cpus: "2", memory: 4g}
+        # RAM real: pico medido de 4,3 GB por job de 60 min (docs/CAPACIDADE.md)
+        limits: {cpus: "2", memory: 6g}
     stop_grace_period: 30s
 
 volumes:

@@ -147,6 +147,15 @@ class Storage:
             raise StorageError("Falha ao excluir arquivos") from exc
         return count
 
+    def list_objects(self, prefix: str):
+        """Itera (chave, data de modificação) de todos os objetos sob o prefixo (paginado)."""
+        try:
+            for page in self._internal.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix):
+                for o in page.get("Contents", []):
+                    yield o["Key"], o["LastModified"]
+        except ClientError as exc:
+            raise StorageError("Falha ao listar arquivos") from exc
+
     def list_keys(self, prefix: str) -> list[str]:
         r = self._internal.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
         return [o["Key"] for o in r.get("Contents", [])]

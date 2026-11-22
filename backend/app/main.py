@@ -56,6 +56,13 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=200 if db_ok else 503,
                             content={"status": "ok" if db_ok else "degraded", "database": db_ok})
 
+    @app.get("/api/v1/policy", tags=["sistema"], summary="Política de dados (pública)",
+             description="Prazos de retenção, limites e suboperadores, lidos da configuração em uso.")
+    def data_policy():
+        from app.services.account import policy
+
+        return policy(get_settings())
+
     limited = [Depends(rate_limit_general)]
     app.include_router(me.router, prefix="/api/v1", dependencies=limited)
     app.include_router(projects.router, prefix="/api/v1", dependencies=limited)

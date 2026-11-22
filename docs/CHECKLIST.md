@@ -150,6 +150,32 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [x] Mudança de comportamento aprovada: excluir projeto com regeneração **na fila** agora cancela e exclui
       (antes: 409); com regeneração **rodando** continua 409
 
+## Etapa 9 — correções do teste de capacidade
+- [x] `WORKER_MEMORY_LIMIT_MB` padrão 8192 (4096 impedia vídeos de 60 min); limite de RAM do worker no Compose 6 GB
+- [x] Falha de memória (`bad_alloc`, `MemoryError`) vira `resource_limit`, com mensagem clara e sem consumir tentativa
+
+## Etapa 9 — Lote 3 (retenção e exclusão)
+- [x] Projeto sem vídeo há mais de 24 h excluído; recente mantido
+- [x] Original, transcrição e candidatos apagados 7 dias após a conclusão; cortes mantidos; regenerar → 409
+      `source_expired`; projeto com 6 dias intacto
+- [x] Projeto inteiro excluído 30 dias após a conclusão; falho/cancelado pela última atividade; 29 dias mantido;
+      registro de consumo preservado sem vínculo
+- [x] Datas de expiração no status do projeto e na página do projeto
+- [x] Projeto com job ativo ou travado é pulado e excluído na rodada seguinte
+- [x] Storage fora do ar: nada apagado do banco; próxima rodada conclui (exclusão retomável)
+- [x] Arquivos órfãos com mais de 24 h apagados; arquivos com registro no banco preservados
+- [x] Detalhe técnico de erros esvaziado após 30 dias (código mantido); auditoria com mais de 365 dias apagada
+- [x] Retenção idempotente; 3 rodadas simultâneas → uma única exclusão
+- [x] Corrida retenção × regeneração sem deadlock (corrigido: ordem de travas projeto → corte)
+- [x] Exclusão de conta: arquivos e dados apagados; dados de outro usuário intactos; consumo sem vínculo; auditoria
+      sem dados pessoais; token antigo recebe 403; login removido no Supabase (servidor de teste); sem chave →
+      aviso; erro no Supabase não desfaz a exclusão; processamento rodando → 409; job na fila cancelado;
+      storage fora do ar → 503 sem apagar nada
+- [x] Página `/privacidade` com prazos e suboperadores lidos da configuração; `/conta` com exclusão confirmada por
+      digitação; testes de navegador, acessibilidade e celular
+- [ ] Exclusão de login com Supabase real — depende da chave `service_role` (Lote 7)
+- [ ] Texto jurídico da política — depende de revisão; contato de suporte (`SUPPORT_EMAIL`) a definir
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível

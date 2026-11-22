@@ -56,6 +56,15 @@ function ProjectView({ id }: { id: string }) {
           {s === "failed" && <Alert>{status.status_message ?? "O processamento falhou."}</Alert>}
           {s === "pending" && status.error_code && <Alert>{status.status_message}</Alert>}
           {s === "completed" && <Alert kind="success">{status.status_message ?? "Processamento concluído."}</Alert>}
+          {status.retention && (status.retention.source_expires_at || status.retention.project_expires_at) && (
+            <p className="text-sm text-slate-700" data-testid="retencao">
+              {status.retention.source_available
+                ? status.retention.source_expires_at && <>O vídeo original será apagado em {dateTime(status.retention.source_expires_at)}. </>
+                : <>O vídeo original já foi apagado; os cortes não podem mais ser regenerados. </>}
+              {status.retention.project_expires_at && <>O projeto e os cortes serão apagados em {dateTime(status.retention.project_expires_at)}. </>}
+              <a href="/privacidade" className="text-indigo-800 underline">Como tratamos seus dados</a>
+            </p>
+          )}
           {s === "canceled" && <Alert kind="info">Processamento cancelado.</Alert>}
           {actionError && <Alert>{actionError}</Alert>}
         </div>
@@ -73,7 +82,7 @@ function ProjectView({ id }: { id: string }) {
       {s === "pending" && <Card className="mb-6"><h2 className="mb-4 text-lg font-semibold">Enviar vídeo</h2>
         <UploadPanel projectId={id} onDone={load} onRefresh={load} /></Card>}
       {s === "completed" && <section aria-labelledby="cortes"><h2 id="cortes" className="mb-4 text-xl font-semibold">Cortes</h2>
-        <Gallery projectId={id} /></section>}
+        <Gallery projectId={id} sourceAvailable={status.retention?.source_available ?? true} /></section>}
     </Page>
   );
 }

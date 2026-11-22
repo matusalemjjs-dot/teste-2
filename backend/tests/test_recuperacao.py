@@ -434,3 +434,28 @@ def test_f3_corrida_exclusao_x_inicio_do_worker(client, alice, video, monkeypatc
     else:
         assert out["delete"] == 409 and out["worker"] == "succeeded" and job.status == "succeeded"
         assert client.delete(f"/api/v1/projects/{pid}", headers=alice.headers).status_code == 204
+
+
+# =============================================================== Falha de memória (achado do teste de capacidade)
+
+def test_falha_de_memoria_vira_resource_limit_sem_consumir_tentativa(client, alice, video, monkeypatch):
+    """Erro real observado no teste de capacidade: o ONNX Runtime (filtro de voz) estoura o limite de memória
+    virtual e a transcrição devolve um erro genérico. Deve virar `resource_limit` e não gastar tentativas."""
+    import app.transcription as tr
+    from app.transcription import TranscriptionError
+
+    class SemMemoria:
+        name, audio_format = "teste", "wav"
+
+        def transcribe(self, audio_path, duration, progress):
+            raise TranscriptionError("transcription_failed", "Falha ao transcrever o áudio do vídeo.",
+                                     detail="Fail: [ONNXRuntimeError] : 1 : FAIL : std::bad_alloc")
+
+    monkeypatch.setattr(tr, "get_transcriber", lambda s: SemMemoria())
+    pid = projeto_pronto(client, alice, video)
+    for _ in range(get_settings().max_process_attempts + 1):  # não esgota as tentativas
+        assert client.post(f"/api/v1/projects/{pid}/process", headers=alice.headers).status_code == 202
+        worker()
+        st = status(client, alice, pid)
+        assert st["status"] == "failed" and st["error_code"] == "resource_limit"
+        assert "limite de memória" in st["status_message"]

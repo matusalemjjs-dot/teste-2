@@ -7,7 +7,7 @@ import { duration } from "@/lib/format";
 import { useApiData } from "@/lib/use-api";
 import { Alert, Button } from "./ui";
 
-function ClipCard({ clip, onChanged }: { clip: Clip; onChanged: () => void }) {
+function ClipCard({ clip, onChanged, sourceAvailable }: { clip: Clip; onChanged: () => void; sourceAvailable: boolean }) {
   const { token } = useAuth();
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +64,8 @@ function ClipCard({ clip, onChanged }: { clip: Clip; onChanged: () => void }) {
           <Button variant="secondary" onClick={() => download("video")} disabled={clip.status !== "ready"}>Baixar MP4</Button>
           {clip.has_subtitles && <Button variant="secondary" onClick={() => download("subtitle")}
             disabled={clip.status !== "ready"}>Legenda (SRT)</Button>}
-          <Button variant="secondary" onClick={() => setShowOptions((v) => !v)} disabled={busy}
+          <Button variant="secondary" onClick={() => setShowOptions((v) => !v)} disabled={busy || !sourceAvailable}
+            title={sourceAvailable ? undefined : "O vídeo original já foi apagado pela política de retenção"}
             aria-expanded={showOptions}>Regenerar</Button>
         </div>
         {showOptions && (
@@ -89,7 +90,7 @@ function ClipCard({ clip, onChanged }: { clip: Clip; onChanged: () => void }) {
   );
 }
 
-export function Gallery({ projectId }: { projectId: string }) {
+export function Gallery({ projectId, sourceAvailable = true }: { projectId: string; sourceAvailable?: boolean }) {
   const { token } = useAuth();
   const [fast, setFast] = useState(false);
   const fetcher = useCallback(
@@ -107,7 +108,8 @@ export function Gallery({ projectId }: { projectId: string }) {
   if (!clips.length) return <p className="text-slate-700">Nenhum corte gerado.</p>;
   return (
     <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-label="Cortes gerados">
-      {clips.map((c) => <ClipCard key={`${c.id}-${c.render_version}-${c.status}`} clip={c} onChanged={load} />)}
+      {clips.map((c) => <ClipCard key={`${c.id}-${c.render_version}-${c.status}`} clip={c} onChanged={load}
+        sourceAvailable={sourceAvailable} />)}
     </ul>
   );
 }

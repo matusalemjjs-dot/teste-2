@@ -194,6 +194,19 @@ duas rodadas ao mesmo tempo. A cada rodada:
   O sinal de vida é uma thread do processo do job que registra atividade a cada `HEARTBEAT_INTERVAL_SECONDS`;
 - diretórios temporários órfãos são apagados.
 
+**Retenção (LGPD)** — `python -m app.worker.maintenance --loop` também executa a retenção a cada
+`RETENTION_INTERVAL_HOURS` (ou na hora, com `--retencao`). Prazos padrão: vídeo original, transcrição e trechos
+candidatos 7 dias após a conclusão (os cortes continuam, mas não podem ser regenerados); projeto inteiro 30 dias
+após a conclusão (ou a última atividade); projeto sem vídeo 24 h; arquivos sem registro no banco 24 h; detalhe
+técnico de erros 30 dias; auditoria 365 dias. Apaga primeiro do storage e depois do banco; projetos com job ativo
+ou travados são pulados e tentados na rodada seguinte. As datas aparecem na página de cada projeto e os prazos
+em `/privacidade` (lidos da API pública `GET /api/v1/policy`).
+
+**Exclusão de conta** — `DELETE /api/v1/me` (página "Minha conta"): apaga todos os arquivos e dados do usuário,
+mantém o registro de consumo sem vínculo pessoal, impede que um token antigo recrie a conta e remove o login no
+Supabase quando `SUPABASE_SERVICE_ROLE_KEY` está configurada no backend (sem ela, a resposta avisa que o login
+deve ser removido no painel do Supabase). Com processamento rodando, responde 409.
+
 **Exclusão de projeto** — trava o projeto; jobs ainda na fila (ex.: regeneração presa) são cancelados e o
 projeto é excluído; com job rodando, a resposta é 409 até ele terminar ou ser recuperado.
 
