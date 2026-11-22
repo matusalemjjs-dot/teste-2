@@ -4,10 +4,11 @@ Plataforma SaaS que transforma vídeos longos em cortes curtos usando transcriç
 processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADMAP.md](docs/ROADMAP.md) e
 [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-> **Estado atual: Etapa 4 (transcrição).** Upload, validação, fila, worker e transcrição funcionam. A análise
-> por IA e a renderização **ainda não existem**: o projeto termina como `failed` com
-> `error_code=stage_unavailable` na etapa `analyze`, com a transcrição salva e disponível em
-> `GET /projects/{id}/transcript`. Nada neste repositório simula resultados de processamento.
+> **Estado atual: Etapa 5 (análise inteligente).** Upload, validação, fila, worker, transcrição e análise por IA
+> funcionam. A renderização **ainda não existe**: o projeto termina como `failed` com
+> `error_code=stage_unavailable` na etapa `render`, com transcrição e candidatos salvos
+> (`GET /projects/{id}/transcript` e `/candidates`). Sem `ANTHROPIC_API_KEY`, a análise falha com
+> `analysis_misconfigured`. Nada neste repositório simula resultados de processamento.
 
 ## Estrutura
 
@@ -20,6 +21,7 @@ backend/            API FastAPI (Python 3.12+)
   app/pipeline/     etapas do processamento e contexto (progresso, cancelamento, subprocessos)
   app/worker/       worker RQ, limites de recursos, limpeza de temporários
   app/transcription/ adaptadores de transcrição (faster-whisper local, serviço externo)
+  app/analysis/     janelas candidatas, adaptador do modelo de linguagem, nota e seleção
   alembic/          migrações
   tests/            Pytest (usa PostgreSQL real)
 infra/              scripts de infraestrutura local
@@ -41,6 +43,7 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
 | POST | `/api/v1/projects/{id}/upload-url` | URL assinada (POST multipart) para enviar o MP4 direto ao storage |
 | POST | `/api/v1/projects/{id}/finalize-upload` | Valida o arquivo enviado com FFprobe (idempotente) |
 | GET | `/api/v1/projects/{id}/transcript` | Segmentos transcritos com timestamps |
+| GET | `/api/v1/projects/{id}/candidates` | Trechos avaliados pela IA (`?only_selected=true`) |
 | POST | `/api/v1/projects/{id}/process` | Enfileirar processamento (idempotente) |
 | POST | `/api/v1/projects/{id}/cancel` | Cancelar, inclusive durante o processamento (idempotente) |
 | DELETE | `/api/v1/projects/{id}` | Excluir projeto **e seus arquivos** (bloqueado durante processamento) |
@@ -73,7 +76,8 @@ Códigos de erro: `invalid_extension`, `invalid_type`, `empty_file`, `file_too_l
   executa jobs `queued`; reexecutar a tarefa não processa de novo.
 - Limite de `MAX_PROCESS_ATTEMPTS` tentativas que falharam por causa do vídeo/processamento. Falhas de
   infraestrutura (`queue_unavailable`, `worker_lost`, `insufficient_disk`, `storage_error`, `stage_unavailable`,
-  `transcription_unavailable`, `transcription_misconfigured`) não contam.
+  `transcription_unavailable`, `transcription_misconfigured`, `analysis_unavailable`, `analysis_misconfigured`)
+  não contam.
 - `GET /status` mostra `progress`, `status_message` e o job atual (`stage`, `attempts`, `error_code`).
 - Cancelar marca o projeto como `canceled`; se o job ainda está na fila ele é removido, se está rodando o
   worker para no próximo ponto de verificação (subprocessos como o FFmpeg são encerrados).
@@ -84,8 +88,8 @@ Etapas do pipeline (`app/pipeline/stages.py`):
 |---|---|
 | `prepare` — baixa o vídeo, confere tamanho e grava o SHA-256 | implementada |
 | `transcribe` — extrai o áudio (FFmpeg), transcreve e grava `transcript_segments` | implementada |
-| `analyze` | Etapa 5 — idem |
-| `render` | Etapa 6 — idem |
+| `analyze` — janelas de 15–60 s, avaliação pelo Claude, validação e seleção de até 10 trechos | implementada |
+| `render` | Etapa 6 — hoje falha com `stage_unavailable` |
 
 ### Transcrição
 
@@ -100,7 +104,31 @@ Provedor escolhido por `TRANSCRIPTION_PROVIDER`:
 Os segmentos são normalizados antes de gravar: dentro de `[0, duração]`, em ordem, sem sobreposição e sem texto
 vazio. Reprocessar substitui a transcrição anterior. Vídeo sem fala → `no_speech`.
 
-Erros do worker: `no_speech`, `audio_extraction_failed`, `transcription_failed`, `transcription_unavailable`,
+### Análise inteligente
+
+1. **Janelas candidatas** (`app/analysis/windows.py`): começam e terminam em limites de segmento da
+   transcrição, de preferência após/antes de fim de frase, com durações-alvo de ~22, ~35 e ~50 s, sempre entre
+   `CLIP_MIN_SECONDS` e `CLIP_MAX_SECONDS`. Quase-duplicatas (>85% de sobreposição) são removidas; no máximo
+   `LLM_MAX_WINDOWS` janelas, distribuídas pelo vídeo todo.
+2. **Avaliação pelo Claude** (`app/analysis/llm.py`), em lotes de `LLM_WINDOWS_PER_REQUEST`, com resposta em
+   JSON Schema (`output_config.format`): notas 0–10 para gancho, contexto, emoção, relevância e retenção, título
+   e justificativa em português. A fala transcrita é tratada como dado (delimitada e com instrução para ignorar
+   comandos embutidos). Com `LLM_FALLBACKS=default`, se o modelo recusar o conteúdo, o servidor da Anthropic
+   tenta outro modelo automaticamente (recurso beta `server-side-fallback-2026-07-01`).
+3. **Qualidade técnica** é calculada pelo servidor a partir da transcrição (proporção de fala e confiança do
+   reconhecimento) — análise visual está fora do MVP.
+4. **Nota final 0–100** = média ponderada (gancho 25%, retenção 20%, relevância 20%, emoção 15%,
+   contexto 10%, técnica 10%).
+5. **Validação e seleção**: itens com id inexistente/duplicado, notas fora de 0–10 ou texto vazio são
+   descartados; timestamps e duração são conferidos; seleção gulosa por nota **sem sobreposição**, até
+   `MAX_CLIPS`. Todos os avaliados ficam em `clip_candidates` (`selected=true` nos escolhidos).
+6. **Consumo**: tokens e custo estimado de cada job ficam em `usage_ledger` (`llm_tokens`, chave idempotente).
+
+Custo estimado com `claude-opus-5-5` (US$ 4 / US$ 20 por milhão de tokens de entrada/saída): da ordem de
+US$ 0,30–0,80 por hora de vídeo com 200 janelas — **estimativa, não medida** (veja o checklist).
+
+Erros do worker: `no_candidates`, `analysis_refused`, `analysis_failed`, `analysis_unavailable`,
+`analysis_misconfigured`, `no_speech`, `audio_extraction_failed`, `transcription_failed`, `transcription_unavailable`,
 `transcription_misconfigured`, `stage_unavailable`, `source_missing`, `source_changed`, `storage_error`, `insufficient_disk`,
 `stage_timeout`, `timeout`, `resource_limit`, `worker_lost`, `internal_error` (mensagem genérica ao usuário;
 detalhe técnico, sem segredos, em `processing_jobs.error_detail`).
@@ -166,7 +194,9 @@ Os testes usam o banco `autoclip_test` (criado automaticamente pelo `docker comp
 emulador S3 local (moto, iniciado pelos próprios testes), um `redis-server` iniciado pelos testes e vídeos
 reais gerados com FFmpeg — portanto `ffmpeg` e `redis-server` precisam estar no PATH. Os testes de transcrição
 real usam fala sintética do `espeak-ng` (só como dado de teste) e o modelo Whisper `tiny`; sem `espeak-ng` ou
-sem o modelo, esses testes são **pulados** (veja com `pytest -rs`). No Windows, rode os
+sem o modelo, esses testes são **pulados** (veja com `pytest -rs`). O teste `tests/test_llm_real.py` chama a API
+real da Anthropic e só roda com `ANTHROPIC_API_KEY` definida (custo aproximado de US$ 0,01); os demais testes da
+análise usam um avaliador de teste determinístico e um servidor HTTP local que imita a API. No Windows, rode os
 testes dentro do WSL2 (o worker com fork e os limites de recursos só existem em Linux/macOS):
 
 ```powershell

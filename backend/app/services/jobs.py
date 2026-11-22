@@ -20,7 +20,8 @@ logger = logging.getLogger("autoclip.jobs")
 
 # Falhas de infraestrutura não consomem as tentativas do usuário.
 INFRA_ERROR_CODES = {"queue_unavailable", "worker_lost", "insufficient_disk", "stage_unavailable", "storage_error",
-                     "transcription_unavailable", "transcription_misconfigured"}
+                     "transcription_unavailable", "transcription_misconfigured", "analysis_unavailable",
+                     "analysis_misconfigured"}
 ACTIVE = (JobStatus.queued.value, JobStatus.running.value)
 
 

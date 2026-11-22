@@ -1,6 +1,6 @@
 # Checklist de validação
 
-Legenda: [x] implementado e coberto por teste automatizado executado · [ ] pendente
+Legenda: [x] implementado e coberto por teste automatizado executado · [~] parcial · [ ] pendente
 
 ## Etapa 1
 - [x] `GET /health` responde 200 com banco disponível (503 se indisponível — sem teste automatizado)
@@ -68,12 +68,31 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [ ] pend
 - [x] Desempenho medido (60 s de fala, CPU, 2 threads): `tiny` 3,1 s; `small` 9,2 s (+9 s de carga do modelo)
 - [ ] Vídeo real de 60 min — **não executado**; estimativa por extrapolação: ~9 min com `small`
 
+## Etapa 5
+- [x] Janelas de 15–60 s alinhadas a segmentos, preferindo fim de frase; sem quase-duplicatas; limite e cobertura
+- [x] Fala insuficiente → `no_candidates` sem chamar a IA
+- [x] Validação descarta id inexistente/duplicado, notas fora de 0–10, campos ausentes; trunca títulos longos
+- [x] Nota 0–100 ponderada; qualidade técnica calculada pela transcrição
+- [x] Seleção até 10, sem sobreposição, dentro da duração; todos os avaliados gravados com `selected`
+- [x] Reprocessar substitui os candidatos; consumo de tokens registrado uma vez por job
+- [x] Adaptador Claude: requisição (modelo, JSON Schema, effort, fallbacks, beta) e respostas testadas contra
+      servidor HTTP local (sucesso, recusa, truncamento, JSON inválido, 400, 401, 429, 529)
+- [x] Sem chave → `analysis_misconfigured` (não consome tentativa); recusa → `analysis_refused`
+- [x] Cancelar durante a análise não grava candidatos; isolamento em `/candidates`
+- [ ] **Avaliação real com o Claude — não executada** (sem `ANTHROPIC_API_KEY` neste ambiente). Rodar
+      `pytest tests/test_llm_real.py` com a chave definida
+- [ ] Compatibilidade de `fallbacks` + `output_config.format` na API real — **não verificada**
+- [ ] Custo real por hora de vídeo — **não medido**
+- [ ] Uma falha intermitente não identificada em ~12 execuções da suíte (não reproduzida depois; suspeita: testes
+      sensíveis a tempo, como cancelamento por temporizador)
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível
 - [x] Isolamento entre usuários (projetos)
 - [x] Vídeo de teste transcrito com timestamps coerentes
-- [ ] Seleção por IA com candidatos válidos (Etapa 5)
+- [~] Seleção por IA devolve candidatos válidos e dentro da duração — validação e seleção testadas; avaliação pelo
+      modelo real pendente de chave
 - [ ] Corte reproduzível e baixável em MP4 (Etapa 6)
 - [x] Falhas registradas sem travar o sistema
 - [x] Requisição repetida não duplica processamento (cobrança: Etapa 7)

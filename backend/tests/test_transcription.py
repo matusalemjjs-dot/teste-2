@@ -143,7 +143,8 @@ def test_adaptador_externo_contrato(stub_server, tmp_path, status, code):
 def test_transcricao_real_com_timestamps_coerentes(client, alice, speech_video, whisper_ready):
     pid = projeto_pronto(client, alice, speech_video)
     st = processar_e_rodar(client, alice, pid)
-    assert st["status"] == "failed" and st["error_code"] == "stage_unavailable"  # análise ainda não existe
+    # ~14 s de fala: transcrição ok, mas não há trecho de 15–60 s para a análise
+    assert st["status"] == "failed" and st["error_code"] == "no_candidates"
     assert st["progress"] >= 40  # prepare (5) + transcribe (35) de 100
     tr = client.get(f"/api/v1/projects/{pid}/transcript", headers=alice.headers).json()
     segs = tr["segments"]
@@ -163,7 +164,7 @@ def test_reprocessar_nao_duplica_transcricao(client, alice, speech_video, whispe
     pid = projeto_pronto(client, alice, speech_video)
     processar_e_rodar(client, alice, pid)
     n = len(segmentos(pid))
-    processar_e_rodar(client, alice, pid)  # stage_unavailable é falha de infraestrutura: nova tentativa liberada
+    processar_e_rodar(client, alice, pid)  # nova tentativa (no_candidates consome 1 de 3)
     segs = segmentos(pid)
     assert len(segs) == n and [s.seq for s in segs] == list(range(n))
 
@@ -244,5 +245,5 @@ def test_worker_real_transcreve_com_limites(client, alice, speech_video, whisper
                        capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr[-2000:]
     st = client.get(f"/api/v1/projects/{pid}/status", headers=alice.headers).json()
-    assert st["error_code"] == "stage_unavailable", st  # transcreveu e parou na análise (Etapa 5)
+    assert st["error_code"] == "no_candidates", st  # transcreveu; fala curta demais para gerar cortes
     assert len(segmentos(pid)) >= 2

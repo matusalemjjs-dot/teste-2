@@ -10,3 +10,4 @@ boto3==1.44.9
 rq==3.0.0
 redis==8.1.0
 faster-whisper==1.2.1
+anthropic==2.12.0

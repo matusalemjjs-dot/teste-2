@@ -9,6 +9,7 @@ os.environ["SUPABASE_JWT_SECRET"] = "segredo-de-teste-apenas-local-com-32-bytes-
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ.setdefault("WHISPER_MODEL", "tiny")  # modelo pequeno para os testes
 os.environ.setdefault("WHISPER_BEAM_SIZE", "1")
+os.environ.setdefault("ANTHROPIC_API_KEY", "")  # testes não chamam a API real, salvo test_llm_real
 
 import socket  # noqa: E402
 
@@ -168,3 +169,29 @@ def speech_video(tmp_path_factory):
         pytest.skip("espeak-ng não instalado")
     from tests.media import make_speech_video
     return make_speech_video(tmp_path_factory.mktemp("fala") / "fala.mp4", FALA)
+
+
+FALA_LONGA = (
+    "Você sabia que a maioria das pessoas desiste de aprender inglês nos primeiros três meses? "
+    "Hoje eu vou contar por que isso acontece e como evitar. "
+    "O primeiro erro é estudar sem objetivo. "
+    "Quando você não sabe por que está estudando, qualquer desculpa vira motivo para parar. "
+    "O segundo erro é querer aprender tudo de uma vez. Gramática, vocabulário, pronúncia, tudo no mesmo dia. "
+    "Isso cansa e frustra. "
+    "Agora a parte importante. O segredo é a constância. Quinze minutos por dia valem mais do que três horas no "
+    "domingo. "
+    "Eu mesmo aprendi assim, ouvindo podcasts no caminho do trabalho, todos os dias, durante um ano inteiro. "
+    "E o resultado me surpreendeu. "
+    "Então a minha dica final é simples. Escolha um horário fixo, comece pequeno e não pare. "
+    "Se este vídeo te ajudou, compartilhe com alguém que está tentando aprender."
+)
+
+
+@pytest.fixture(scope="session")
+def long_speech_video(tmp_path_factory):
+    """~80 s de fala sintética em português (espeak-ng), usado só como dado de teste."""
+    import shutil
+    if not shutil.which("espeak-ng"):
+        pytest.skip("espeak-ng não instalado")
+    from tests.media import make_speech_video
+    return make_speech_video(tmp_path_factory.mktemp("fala_longa") / "longa.mp4", FALA_LONGA, pad_to=90)

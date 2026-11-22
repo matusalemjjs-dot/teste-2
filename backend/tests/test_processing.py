@@ -92,20 +92,20 @@ def test_isolamento_processamento(client, alice, bob, video):
 
 # ---------------------------------------------------------------- execução
 
-def test_pipeline_padrao_nao_finge_resultado(client, alice, speech_video, whisper_ready):
-    """Sem IA/renderização implementadas, o projeto NÃO pode ser concluído (a transcrição fica salva)."""
-    pid = projeto_pronto(client, alice, speech_video)
+def test_pipeline_padrao_nao_finge_resultado(client, alice, long_speech_video, whisper_ready):
+    """Sem chave da IA (e sem renderização), o projeto NÃO pode ser concluído; nada é inventado."""
+    pid = projeto_pronto(client, alice, long_speech_video)
     processar(client, alice, pid)
     rodar_worker()
     st = status(client, alice, pid)
     assert st["status"] == "failed"
-    assert st["error_code"] == "stage_unavailable"
-    assert "análise inteligente" in st["status_message"]
+    assert st["error_code"] == "analysis_misconfigured"
     assert st["progress"] < 100
     assert st["job"]["status"] == "failed" and st["job"]["stage"] == "analyze"
+    assert client.get(f"/api/v1/projects/{pid}/candidates", headers=alice.headers).json()["items"] == []
     with get_sessionmaker()() as db:
         asset = db.scalar(select(MediaAsset).where(MediaAsset.project_id == uuid.UUID(pid)))
-    assert asset.checksum_sha256 == hashlib.sha256(speech_video.read_bytes()).hexdigest()
+    assert asset.checksum_sha256 == hashlib.sha256(long_speech_video.read_bytes()).hexdigest()
     assert tmp_vazio()
 
 

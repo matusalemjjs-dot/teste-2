@@ -141,4 +141,22 @@ class TranscriptOut(BaseModel):
     segments: list[TranscriptSegmentOut]
 
 
+class CandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    start_seconds: float
+    end_seconds: float
+    score: int
+    title: str
+    justification: str
+    criteria: dict | None
+    selected: bool
+    model_name: str | None
+
+
+class CandidateList(BaseModel):
+    project_id: uuid.UUID
+    items: list[CandidateOut]
+
+
 ProjectStatusOut.model_rebuild()

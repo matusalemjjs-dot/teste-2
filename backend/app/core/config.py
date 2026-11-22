@@ -72,6 +72,22 @@ class Settings(BaseSettings):
     openai_transcription_model: str = "whisper-1"
     openai_max_upload_mb: int = 25
 
+    # Análise inteligente (modelo de linguagem com saída estruturada)
+    analysis_provider: str = "anthropic"
+    anthropic_api_key: SecretStr | None = None  # ANTHROPIC_API_KEY
+    anthropic_base_url: str | None = None  # vazio = API oficial
+    llm_model: str = "claude-opus-5-5"
+    llm_effort: str = "medium"  # low | medium | high | xhigh | max
+    llm_fallbacks: str = "default"  # "default" = fallback no servidor em caso de recusa; "off" desativa
+    llm_timeout_seconds: int = 300
+    llm_max_windows: int = 200  # janelas candidatas avaliadas por vídeo
+    llm_windows_per_request: int = 40
+    llm_input_price_per_mtok: float = 4.0  # USD, para estimativa de custo interno
+    llm_output_price_per_mtok: float = 20.0
+    clip_min_seconds: float = 15
+    clip_max_seconds: float = 60
+    max_clips: int = 10
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024

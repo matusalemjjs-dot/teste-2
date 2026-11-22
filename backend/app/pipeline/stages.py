@@ -143,6 +143,85 @@ def transcribe(ctx: JobContext) -> None:
     ctx.data["language"] = result.language
 
 
+def analyze(ctx: JobContext) -> None:
+    """Gera janelas de 15–60 s, avalia com o modelo de linguagem, valida e seleciona até N trechos distintos."""
+    from decimal import Decimal
+
+    from app.analysis.llm import LLMError, get_scorer
+    from app.analysis.scoring import score, validate
+    from app.analysis.scoring import select as select_candidates
+    from app.analysis.windows import Seg, build_windows
+    from app.models import ClipCandidate, UsageLedger
+
+    s = ctx.settings
+    with get_sessionmaker()() as db:
+        rows = db.scalars(select(TranscriptSegment).where(TranscriptSegment.project_id == ctx.project_id)
+                          .order_by(TranscriptSegment.seq)).all()
+        duration = float(db.scalar(select(Project.source_duration_seconds).where(Project.id == ctx.project_id)) or 0)
+    segs = [Seg(r.seq, float(r.start_seconds), float(r.end_seconds), r.text,
+                float(r.confidence) if r.confidence is not None else None) for r in rows]
+    windows = build_windows(segs, s.clip_min_seconds, s.clip_max_seconds, s.llm_max_windows)
+    if not windows:
+        raise PipelineError("no_candidates", f"Não há fala suficiente para formar trechos de "
+                                             f"{s.clip_min_seconds:g} a {s.clip_max_seconds:g} segundos.")
+    try:
+        scorer = get_scorer(s)
+    except LLMError as exc:
+        raise PipelineError(exc.code, exc.message, exc.detail) from exc
+
+    by_id = {w.id: w for w in windows}
+    evaluations = []
+    usage_in = usage_out = 0
+    batches = [windows[i:i + s.llm_windows_per_request] for i in range(0, len(windows), s.llm_windows_per_request)]
+    try:
+        for n, batch in enumerate(batches):
+            ctx.stage_progress(n / len(batches), f"Analisando trechos ({n * 100 // len(batches)}%)", min_interval=0)
+            raw, usage = scorer.evaluate(batch)
+            usage_in += usage.input_tokens
+            usage_out += usage.output_tokens
+            batch_ids = {w.id: w for w in batch}
+            evaluations.extend(validate(raw, batch_ids))
+    except LLMError as exc:
+        raise PipelineError(exc.code, exc.message, exc.detail) from exc
+    finally:
+        if usage_in or usage_out:  # registra consumo real, uma vez por job (chave idempotente)
+            cost = (usage_in * s.llm_input_price_per_mtok + usage_out * s.llm_output_price_per_mtok) / 1_000_000
+            with get_sessionmaker()() as db:
+                from sqlalchemy.dialects.postgresql import insert
+
+                db.execute(insert(UsageLedger).values(
+                    owner_id=ctx.owner_id, project_id=ctx.project_id, job_id=ctx.job_id, kind="llm_tokens",
+                    quantity=usage_in + usage_out, estimated_cost_usd=Decimal(f"{cost:.6f}"),
+                    idempotency_key=f"llm_tokens:{ctx.job_id}",
+                ).on_conflict_do_nothing(index_elements=["idempotency_key"]))
+                db.commit()
+
+    candidates = [score(ev, by_id[ev.window_id]) for ev in evaluations]
+    chosen = select_candidates(candidates, duration=duration, min_s=s.clip_min_seconds, max_s=s.clip_max_seconds,
+                    limit=s.max_clips)
+    if not chosen:
+        raise PipelineError("no_candidates", "A análise não encontrou trechos válidos para gerar cortes.",
+                            detail=f"windows={len(windows)} evaluations={len(evaluations)}")
+
+    with get_sessionmaker()() as db:
+        project = db.scalar(select(Project).where(Project.id == ctx.project_id).with_for_update())
+        if project is None or PS(project.status) != PS.processing:
+            db.rollback()
+            from app.pipeline.context import Canceled
+
+            raise Canceled()
+        db.execute(delete(ClipCandidate).where(ClipCandidate.project_id == ctx.project_id))  # idempotência
+        db.add_all([
+            ClipCandidate(project_id=ctx.project_id, start_seconds=c.window.start, end_seconds=c.window.end,
+                          score=c.score, title=c.title, justification=c.justification,
+                          criteria={**c.criteria, "first_seq": c.window.first_seq, "last_seq": c.window.last_seq},
+                          selected=c.selected, model_name=scorer.model_name)
+            for c in candidates
+        ])
+        db.commit()
+    ctx.data["selected_candidates"] = [(c.window.start, c.window.end) for c in chosen]
+
+
 def unavailable(label: str) -> Callable[[JobContext], None]:
     def run(ctx: JobContext) -> None:
         raise PipelineError("stage_unavailable",
@@ -155,7 +234,7 @@ def default_pipeline() -> list[Stage]:
     return [
         Stage("prepare", "preparação do vídeo", 5, prepare_source),
         Stage("transcribe", "transcrição", 35, transcribe),
-        Stage("analyze", "análise inteligente", 20, unavailable("análise inteligente")),
+        Stage("analyze", "análise inteligente", 20, analyze),
         Stage("render", "renderização dos cortes", 40, unavailable("renderização")),
     ]
 

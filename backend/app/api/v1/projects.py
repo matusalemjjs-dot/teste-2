@@ -8,6 +8,8 @@ from app.api.deps import DB, CurrentProfile
 from app.core.config import Settings, get_settings
 from app.models.enums import ProjectStatus
 from app.schemas import (
+    CandidateList,
+    CandidateOut,
     ErrorResponse,
     FinalizeUploadOut,
     JobOut,
@@ -106,6 +108,24 @@ def get_transcript(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Tr
     rows = db.scalars(select(TranscriptSegment).where(TranscriptSegment.project_id == p.id)
                       .order_by(TranscriptSegment.seq)).all()
     return TranscriptOut(project_id=p.id, segments=[TranscriptSegmentOut.model_validate(r) for r in rows])
+
+
+@router.get("/{project_id}/candidates", response_model=CandidateList, responses=NOT_FOUND,
+            summary="Trechos candidatos avaliados pela IA",
+            description="Todos os trechos avaliados, do maior para o menor score. `selected=true` indica os "
+                        "escolhidos (até 10, sem sobreposição) para virar cortes.")
+def get_candidates(project_id: uuid.UUID, db: DB, profile: CurrentProfile,
+                   only_selected: Annotated[bool, Query()] = False) -> CandidateList:
+    from sqlalchemy import select
+
+    from app.models import ClipCandidate
+
+    p = _load(db, profile, project_id)
+    q = select(ClipCandidate).where(ClipCandidate.project_id == p.id)
+    if only_selected:
+        q = q.where(ClipCandidate.selected.is_(True))
+    rows = db.scalars(q.order_by(ClipCandidate.score.desc(), ClipCandidate.start_seconds)).all()
+    return CandidateList(project_id=p.id, items=[CandidateOut.model_validate(r) for r in rows])
 
 
 @router.post("/{project_id}/upload-url", response_model=UploadUrlOut, responses=UPLOAD_ERRORS,
