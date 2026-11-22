@@ -73,11 +73,15 @@ def list_owned(db: Session, owner_id: uuid.UUID, limit: int, offset: int,
 
 
 def cancel_project(db: Session, project: Project) -> Project:
+    db.refresh(project, with_for_update=True)  # serializa com o worker
     if S(project.status) == S.canceled:
         return project  # idempotente
     if S(project.status) not in CANCELABLE:
         raise InvalidTransition(S(project.status), S.canceled)
     transition(project, S.canceled, "Processamento cancelado pelo usuário")
+    from app.services.jobs import cancel_active_job  # import local evita ciclo
+
+    cancel_active_job(db, project.id)
     audit.record(db, project.owner_id, "project.cancel", "project", project.id)
     db.commit()
     db.refresh(project)

@@ -131,3 +131,12 @@ class Storage:
 @lru_cache
 def get_storage() -> Storage:
     return Storage(get_settings())
+
+
+def iter_object(storage: Storage, key: str, chunk_size: int = 1024 * 1024):
+    """Lê um objeto em blocos (streaming), sem carregar o arquivo inteiro na memória."""
+    try:
+        body = storage._internal.get_object(Bucket=storage.bucket, Key=key)["Body"]
+        yield from body.iter_chunks(chunk_size)
+    except ClientError as exc:
+        raise StorageError("Falha ao baixar o arquivo") from exc

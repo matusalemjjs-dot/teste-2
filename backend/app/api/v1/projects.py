@@ -10,7 +10,9 @@ from app.models.enums import ProjectStatus
 from app.schemas import (
     ErrorResponse,
     FinalizeUploadOut,
+    JobOut,
     MediaAssetOut,
+    ProcessOut,
     ProjectCreate,
     ProjectList,
     ProjectOut,
@@ -19,9 +21,11 @@ from app.schemas import (
     UploadUrlOut,
     UploadUrlRequest,
 )
+from app.services import jobs as jobs_svc
 from app.services import projects as svc
 from app.services import uploads
 from app.services.media_probe import ProbeUnavailable
+from app.services.queue import QueueUnavailable
 from app.services.storage import Storage, StorageError, get_storage
 
 router = APIRouter(prefix="/projects", tags=["projetos"])
@@ -83,8 +87,10 @@ def get_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Proje
             summary="Status e progresso do processamento")
 def get_status(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> ProjectStatusOut:
     p = _load(db, profile, project_id)
+    job = jobs_svc.latest_job(db, p.id)
     return ProjectStatusOut(id=p.id, status=p.status, progress=p.progress, status_message=p.status_message,
-                            error_code=p.error_code, updated_at=p.updated_at)
+                            error_code=p.error_code, updated_at=p.updated_at,
+                            job=JobOut.model_validate(job) if job else None)
 
 
 @router.post("/{project_id}/upload-url", response_model=UploadUrlOut, responses=UPLOAD_ERRORS,
@@ -127,6 +133,29 @@ def finalize_upload(project_id: uuid.UUID, db: DB, profile: CurrentProfile, sett
     return FinalizeUploadOut(project=ProjectOut.model_validate(result.project),
                              asset=MediaAssetOut.model_validate(result.asset),
                              already_finalized=result.already_finalized)
+
+
+@router.post("/{project_id}/process", response_model=ProcessOut, status_code=status.HTTP_202_ACCEPTED,
+             responses={**UPLOAD_ERRORS, 200: {"model": ProcessOut, "description": "Processamento já existente"}},
+             summary="Iniciar o processamento",
+             description="Idempotente: repetir a chamada com processamento em fila, em andamento ou concluído "
+                         "devolve o mesmo job (HTTP 200, `created=false`). Após uma falha, cria nova tentativa.")
+def process_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile, settings: SettingsDep):
+    try:
+        result = jobs_svc.request_processing(db, settings, profile.id, project_id)
+    except jobs_svc.ProcessRejected as exc:
+        return JSONResponse(status_code=exc.http_status, content={"detail": exc.message, "code": exc.code})
+    except jobs_svc.Busy as exc:
+        raise _busy() from exc
+    except QueueUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Fila de processamento indisponível. Tente novamente em instantes.") from exc
+    if result is None:
+        raise _not_found()
+    job, created = result
+    project = svc.get_owned(db, profile.id, project_id)
+    body = ProcessOut(project=ProjectOut.model_validate(project), job=JobOut.model_validate(job), created=created)
+    return JSONResponse(status_code=202 if created else 200, content=body.model_dump(mode="json"))
 
 
 @router.post("/{project_id}/cancel", response_model=ProjectOut,

@@ -4,8 +4,9 @@ Plataforma SaaS que transforma vídeos longos em cortes curtos usando transcriç
 processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADMAP.md](docs/ROADMAP.md) e
 [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-> **Estado atual: Etapa 2 (upload e validação de vídeo).** Ainda **não** há fila, transcrição, IA,
-> renderização nem frontend. Nada neste repositório simula resultados de processamento.
+> **Estado atual: Etapa 3 (fila e worker).** Upload, validação, fila e worker funcionam. Transcrição, IA e
+> renderização **ainda não existem**: ao processar, o projeto termina como `failed` com
+> `error_code=stage_unavailable`. Nada neste repositório simula resultados de processamento.
 
 ## Estrutura
 
@@ -14,7 +15,9 @@ backend/            API FastAPI (Python 3.12+)
   app/core/         configuração, logs estruturados, validação de JWT
   app/models/       modelo de dados SQLAlchemy (10 tabelas)
   app/api/v1/       rotas
-  app/services/     regras de negócio (máquina de estados de projetos, auditoria)
+  app/services/     regras de negócio (projetos, upload, storage, fila, auditoria)
+  app/pipeline/     etapas do processamento e contexto (progresso, cancelamento, subprocessos)
+  app/worker/       worker RQ, limites de recursos, limpeza de temporários
   alembic/          migrações
   tests/            Pytest (usa PostgreSQL real)
 infra/              scripts de infraestrutura local
@@ -35,7 +38,8 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
 | GET | `/api/v1/projects/{id}/status` | Status e progresso |
 | POST | `/api/v1/projects/{id}/upload-url` | URL assinada (POST multipart) para enviar o MP4 direto ao storage |
 | POST | `/api/v1/projects/{id}/finalize-upload` | Valida o arquivo enviado com FFprobe (idempotente) |
-| POST | `/api/v1/projects/{id}/cancel` | Cancelar (idempotente) |
+| POST | `/api/v1/projects/{id}/process` | Enfileirar processamento (idempotente) |
+| POST | `/api/v1/projects/{id}/cancel` | Cancelar, inclusive durante o processamento (idempotente) |
 | DELETE | `/api/v1/projects/{id}` | Excluir projeto **e seus arquivos** (bloqueado durante processamento) |
 
 ### Fluxo de upload
@@ -57,6 +61,37 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
 Códigos de erro: `invalid_extension`, `invalid_type`, `empty_file`, `file_too_large`, `too_short`, `too_long`,
 `no_video_stream`, `no_audio_stream`, `corrupted`, `probe_timeout`, `upload_not_requested`, `upload_missing`,
 `invalid_state`.
+
+### Processamento
+
+- `POST /process` só aceita projetos `uploaded` (ou `failed`, para nova tentativa). Repetir a chamada com o
+  projeto em fila, processando ou concluído devolve o **mesmo** job (HTTP 200, `created=false`).
+- Cada tentativa é um registro em `processing_jobs` com chave única `process_project:{projeto}:{n}`. O worker só
+  executa jobs `queued`; reexecutar a tarefa não processa de novo.
+- Limite de `MAX_PROCESS_ATTEMPTS` tentativas que falharam por causa do vídeo/processamento. Falhas de
+  infraestrutura (`queue_unavailable`, `worker_lost`, `insufficient_disk`, `storage_error`, `stage_unavailable`)
+  não contam.
+- `GET /status` mostra `progress`, `status_message` e o job atual (`stage`, `attempts`, `error_code`).
+- Cancelar marca o projeto como `canceled`; se o job ainda está na fila ele é removido, se está rodando o
+  worker para no próximo ponto de verificação (subprocessos como o FFmpeg são encerrados).
+
+Etapas do pipeline (`app/pipeline/stages.py`):
+
+| Etapa | Estado |
+|---|---|
+| `prepare` — baixa o vídeo, confere tamanho e grava o SHA-256 | implementada |
+| `transcribe` | Etapa 4 — hoje falha com `stage_unavailable` |
+| `analyze` | Etapa 5 — idem |
+| `render` | Etapa 6 — idem |
+
+Erros do worker: `stage_unavailable`, `source_missing`, `source_changed`, `storage_error`, `insufficient_disk`,
+`stage_timeout`, `timeout`, `resource_limit`, `worker_lost`, `internal_error` (mensagem genérica ao usuário;
+detalhe técnico, sem segredos, em `processing_jobs.error_detail`).
+
+Limites do worker: tempo total por job (`JOB_TIMEOUT_SECONDS`), tempo por subprocesso, memória (`RLIMIT_AS`),
+CPU (`RLIMIT_CPU`) e tamanho máximo de arquivo gerado (`RLIMIT_FSIZE`) aplicados ao processo de cada job
+(Linux/macOS), espaço livre mínimo em disco, diretório temporário por job apagado ao final e limpeza de órfãos
+na inicialização. Jobs `running` sem atualização além do timeout são marcados como `worker_lost`.
 
 Exemplo de envio no navegador (Etapa 8 usará isto):
 
@@ -98,11 +133,22 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
+### Worker no Windows
+
+O RQ depende de `fork()`, que não existe no Windows. Opções:
+
+1. **Recomendado:** worker em contêiner: `docker compose --profile worker up -d --build worker`
+   (usa `backend/.env` e aplica limites de CPU/memória do Docker).
+2. **WSL2 (Ubuntu):** siga as instruções de Linux dentro do WSL e rode `python -m app.worker.run`.
+3. Nativo: `python -m app.worker.run` usa um worker sem fork, com timeout por temporizador e **sem** limites
+   de memória/CPU. Use só para testes locais — esse modo não foi testado em Windows.
+
 ### Testes
 
 Os testes usam o banco `autoclip_test` (criado automaticamente pelo `docker compose` na primeira subida), um
-emulador S3 local (moto, iniciado pelos próprios testes) e vídeos reais gerados com FFmpeg — portanto o FFmpeg
-precisa estar no PATH:
+emulador S3 local (moto, iniciado pelos próprios testes), um `redis-server` iniciado pelos testes e vídeos
+reais gerados com FFmpeg — portanto `ffmpeg` e `redis-server` precisam estar no PATH. No Windows, rode os
+testes dentro do WSL2 (o worker com fork e os limites de recursos só existem em Linux/macOS):
 
 ```powershell
 cd backend
@@ -124,6 +170,7 @@ cd backend && python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
 cp ../.env.example .env
 alembic upgrade head && uvicorn app.main:app --reload
+python -m app.worker.run          # em outro terminal
 pytest
 ```
 

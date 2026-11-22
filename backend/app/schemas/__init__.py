@@ -67,6 +67,7 @@ class ProjectStatusOut(BaseModel):
     status_message: str | None
     error_code: str | None
     updated_at: datetime
+    job: "JobOut | None" = None
 
 
 class UploadUrlRequest(BaseModel):
@@ -106,3 +107,24 @@ class FinalizeUploadOut(BaseModel):
 class UploadErrorResponse(BaseModel):
     detail: str
     code: str
+
+
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    status: str
+    stage: str | None
+    attempts: int
+    error_code: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class ProcessOut(BaseModel):
+    project: ProjectOut
+    job: JobOut
+    created: bool = Field(description="false quando a requisição repetida devolveu o processamento existente")
+
+
+ProjectStatusOut.model_rebuild()

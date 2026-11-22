@@ -22,6 +22,9 @@ os.environ["S3_PUBLIC_ENDPOINT_URL"] = f"http://127.0.0.1:{S3_PORT}"
 os.environ["S3_BUCKET"] = "autoclip-test"
 os.environ["S3_ACCESS_KEY_ID"] = "teste"
 os.environ["S3_SECRET_ACCESS_KEY"] = "teste-secreto"
+REDIS_PORT = _free_port()
+os.environ["REDIS_URL"] = f"redis://127.0.0.1:{REDIS_PORT}/0"
+os.environ["QUEUE_NAME"] = "autoclip-test"
 # O emulador S3 é local: não passar pelo proxy HTTP do ambiente (boto3 e ffmpeg respeitam NO_PROXY).
 for var in ("NO_PROXY", "no_proxy"):
     os.environ[var] = ",".join(filter(None, [os.environ.get(var), "127.0.0.1", "localhost"]))
@@ -67,9 +70,38 @@ def s3_server():
     server.stop()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def redis_server(tmp_path_factory):
+    import subprocess
+    import time as _time
+
+    import redis
+
+    proc = subprocess.Popen(["redis-server", "--port", str(REDIS_PORT), "--bind", "127.0.0.1", "--save", "",
+                             "--appendonly", "no", "--dir", str(tmp_path_factory.mktemp("redis"))],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    client = redis.Redis(port=REDIS_PORT)
+    for _ in range(50):
+        try:
+            client.ping()
+            break
+        except redis.ConnectionError:
+            _time.sleep(0.1)
+    yield proc
+    proc.terminate()
+    proc.wait()
+
+
 @pytest.fixture(autouse=True)
-def clean_tables(s3_server):
+def clean_tables(s3_server, redis_server, tmp_path):
+    from app.core.config import get_settings
+    settings = get_settings()
+    previous = settings.worker_tmp_dir
+    settings.worker_tmp_dir = str(tmp_path / "worker-tmp")
     yield
+    settings.worker_tmp_dir = previous
+    from app.services.queue import get_redis
+    get_redis().flushdb()
     from app.services.storage import get_storage
     get_storage().delete_prefix("")
     with get_engine().begin() as conn:

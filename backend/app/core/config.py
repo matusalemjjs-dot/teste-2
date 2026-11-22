@@ -43,6 +43,19 @@ class Settings(BaseSettings):
     ffmpeg_path: str = "ffmpeg"
     probe_timeout_seconds: int = 60
 
+    # Fila e worker
+    redis_url: str = "redis://localhost:6379/0"
+    queue_name: str = "autoclip"
+    job_timeout_seconds: int = 3600  # tempo máximo de um processamento completo
+    max_process_attempts: int = 3  # tentativas que falharam por causa do arquivo/processamento
+    worker_tmp_dir: str | None = None  # padrão: <tmp do sistema>/autoclip
+    worker_memory_limit_mb: int = 4096  # RLIMIT_AS do processo do job (Linux/macOS)
+    worker_cpu_limit_seconds: int = 7200  # RLIMIT_CPU do processo do job (inclui FFmpeg)
+    worker_min_free_disk_mb: int = 1024  # espaço livre que precisa sobrar após baixar o vídeo
+    worker_tmp_max_age_hours: int = 6  # diretórios temporários órfãos mais antigos são apagados
+    stale_job_grace_seconds: int = 300  # margem além do timeout para considerar um job perdido
+    ffmpeg_threads: int = 2
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024

@@ -51,6 +51,31 @@ services:
       mc anonymous set none local/autoclip-media"
     restart: "no"
 
+  # Worker em contêiner (recomendado no Windows). Uso: docker compose --profile worker up -d worker
+  worker:
+    profiles: ["worker"]
+    build: ./backend
+    command: ["python", "-m", "app.worker.run"]
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://autoclip:autoclip@postgres:5432/autoclip
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      WORKER_TMP_DIR: /tmp/autoclip
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    volumes:
+      - workertmp:/tmp/autoclip
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 4g}
+    stop_grace_period: 30s
+
 volumes:
   pgdata:
   miniodata:
+  workertmp:
