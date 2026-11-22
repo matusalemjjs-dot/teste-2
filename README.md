@@ -284,6 +284,8 @@ usuários retornam 404 (indistinguíveis de inexistentes).
 > 22/11/2026, quando a imagem `minio/minio` deixou de estar disponível no Docker Hub. Quem já tinha o volume
 > antigo pode apagá-lo com `docker volume rm teste-2_miniodata` (o nome do prefixo segue a pasta do repositório).
 
+> **O que falta para abrir o beta** (contas, chaves e decisões do responsável): [docs/PROXIMOS-PASSOS.md](docs/PROXIMOS-PASSOS.md).
+
 ## Executar no Windows
 
 Pré-requisitos: [Python 3.12+](https://www.python.org/downloads/) (marque "Add to PATH"),
