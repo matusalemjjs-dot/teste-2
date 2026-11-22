@@ -3,7 +3,7 @@ import logging
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
 from app.api.v1 import clips, me, projects
@@ -18,11 +18,23 @@ logger = logging.getLogger("autoclip")
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
+    producao = settings.environment == "production"
     app = FastAPI(
         title="AutoClip IA API",
         version="0.1.0",
         description="API da plataforma AutoClip IA: geração inteligente de cortes a partir de vídeos longos.",
+        # documentação interativa desligada em produção (não expõe a superfície da API)
+        docs_url=None if producao else "/docs", redoc_url=None if producao else "/redoc",
+        openapi_url=None if producao else "/openapi.json",
     )
+
+    @app.middleware("http")
+    async def cabecalhos_de_seguranca(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Cache-Control", "no-store")
+        return response
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -55,6 +67,29 @@ def create_app() -> FastAPI:
             db_ok = False
         return JSONResponse(status_code=200 if db_ok else 503,
                             content={"status": "ok" if db_ok else "degraded", "database": db_ok})
+
+    @app.get("/health/ready", tags=["sistema"], summary="Prontidão (banco, Redis, armazenamento, workers, fila)",
+             description="503 se banco, Redis ou armazenamento estiverem fora do ar ou se nenhum worker estiver vivo.")
+    def ready():
+        from app.services.monitoring import readiness
+
+        checks = readiness(get_settings())
+        return JSONResponse(status_code=200 if checks["pronto"] else 503, content=checks)
+
+    @app.post("/api/v1/client-errors", status_code=204, tags=["sistema"], summary="Erro ocorrido no navegador",
+              description="Só registra em log (sem dados pessoais). Limite de requisições por IP.")
+    async def client_errors(request: Request):
+        from app.services.monitoring import record_client_report
+
+        await record_client_report(request, "client_error", get_settings())
+        return Response(status_code=204)
+
+    @app.post("/api/v1/csp-report", status_code=204, tags=["sistema"], summary="Relatório de CSP do navegador")
+    async def csp_report(request: Request):
+        from app.services.monitoring import record_client_report
+
+        await record_client_report(request, "csp_violation", get_settings())
+        return Response(status_code=204)
 
     @app.get("/api/v1/policy", tags=["sistema"], summary="Política de dados (pública)",
              description="Prazos de retenção, limites e suboperadores, lidos da configuração em uso.")

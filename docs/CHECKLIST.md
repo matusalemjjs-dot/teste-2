@@ -191,6 +191,26 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
       Supabase real**
 - [ ] Recalibrar `LLM_RESERVE_USD_PER_MINUTE` e os tetos com o custo real medido (Lote 7)
 
+## Etapa 9 — Lote 5 (monitoramento e qualidade)
+- [x] `/health/ready`: 200 com tudo no ar; 503 sem worker, com Redis ou armazenamento fora
+- [x] Alertas: falhas, fila, sem worker, Redis, custo ≥ 80% do teto, jobs perdidos, retenção e manutenção;
+      formatos Slack/Discord/JSON; sem repetição na janela (Redis ou memória); sem dados pessoais
+- [x] Relatório diário enviado uma vez por intervalo, sem e-mails; inclui avaliações dos cortes
+- [x] Erros do navegador e relatórios de CSP registrados sem tokens nem consulta da URL; limite por IP (429);
+      corpo grande recusado (413)
+- [x] Avaliação "útil / não útil" por corte (a última vale), persistida e com isolamento por usuário
+- [x] Frontend: cabeçalhos de segurança e CSP Report-Only; **nenhuma violação de CSP no fluxo completo** (com
+      teste de controle que prova que o detector funciona)
+- [x] `/docs` desligado em produção; `nosniff`/`no-store` na API
+- [x] Barreira: build com modo de login de teste falha sem `AUTOCLIP_ALLOW_TEST_AUTH=1`
+- [x] Páginas de erro e "não encontrada" em português; erros reportados à API
+- [x] Sessão expirada (401) volta ao login com aviso; não convidado (403) continua vendo a mensagem
+- [x] "Vídeos processados" pelo total real; "Nota estimada" na galeria
+- [x] Acessibilidade (axe) também na página do projeto com a galeria
+- [x] `npm audit`: 0 vulnerabilidades (22/11/2026)
+- [ ] Canal de alertas real (Slack/Discord) — depende de você; testado contra servidor local
+- [ ] Ativar o bloqueio da CSP — depois do beta, após período sem violações
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível

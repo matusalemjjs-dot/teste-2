@@ -132,6 +132,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     go();
   }, [client, testMode]);
 
+  useEffect(() => {
+    const expirou = () => { signOut("/entrar?expirada=1"); };
+    window.addEventListener("autoclip:sessao-expirada", expirou);
+    return () => window.removeEventListener("autoclip:sessao-expirada", expirou);
+  }, [signOut]);
+
   const token = testMode ? testToken : session?.access_token ?? null;
   const value = useMemo<AuthState>(() => ({
     ready, token, testMode, recovery, leaving,

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AuthCard } from "@/components/auth-form";
 import { Alert, Button, Field } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
@@ -11,6 +12,11 @@ import { BETA_MODE } from "@/lib/config";
 function destino(): string {
   const v = new URLSearchParams(window.location.search).get("voltar");
   return v && v.startsWith("/") && !v.startsWith("//") ? v : "/painel"; // só caminhos internos
+}
+
+function AvisoSessaoExpirada() {
+  if (useSearchParams().get("expirada") !== "1") return null;
+  return <Alert kind="info">Sua sessão expirou. Entre novamente para continuar.</Alert>;
 }
 
 export default function Entrar() {
@@ -34,6 +40,7 @@ export default function Entrar() {
     <AuthCard title="Entrar" footer={BETA_MODE ? <>Beta fechado: o acesso é feito por convite.</>
       : <>Não tem conta? <Link className="font-semibold text-indigo-800 underline" href="/cadastro">Criar conta</Link></>}>
       <form onSubmit={onSubmit} className="space-y-4" noValidate={false}>
+        <Suspense fallback={null}><AvisoSessaoExpirada /></Suspense>
         {error && <Alert>{error}</Alert>}
         <Field id="email" name="email" type="email" label="E-mail" autoComplete="email" required />
         <Field id="senha" name="senha" type="password" label="Senha" autoComplete="current-password" required />

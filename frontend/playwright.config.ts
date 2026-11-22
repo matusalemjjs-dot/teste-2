@@ -33,6 +33,7 @@ export default defineConfig({
       timeout: 300_000,
       reuseExistingServer: false,
       env: { NEXT_PUBLIC_API_URL: API, NEXT_PUBLIC_AUTH_MODE: "test", NEXT_PUBLIC_BETA_MODE: "true",
+        NEXT_PUBLIC_STORAGE_ORIGIN: "http://127.0.0.1:5101", AUTOCLIP_ALLOW_TEST_AUTH: "1",
         NEXT_TELEMETRY_DISABLED: "1" },
     },
   ],

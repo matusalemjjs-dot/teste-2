@@ -76,6 +76,38 @@ def run_maintenance(settings: Settings | None = None) -> dict:
             conn.commit()
 
 
+def ciclo(settings: Settings, *, forcar_retencao: bool = False) -> dict:
+    """Uma rodada completa: manutenção, retenção (se devida), alertas e relatório diário (se devido)."""
+    from app.services.alerts import Alert, daily_report_due, evaluate, send, send_daily_report
+
+    rodada = run_maintenance(settings)
+    log_event(logger, "Manutenção executada", **rodada)
+    extras: list[Alert] = []
+    if not rodada.get("skipped"):
+        if rodada.get("stale_jobs_failed"):
+            extras.append(Alert("worker_lost", f"{rodada['stale_jobs_failed']} job(s) sem sinal de vida foram "
+                                               "marcados como perdidos (worker morto?)."))
+        q = rodada.get("queue")
+        if q == "redis_indisponivel":
+            extras.append(Alert("redis", "Redis inacessível durante a manutenção."))
+        elif isinstance(q, dict) and q.get("lost"):
+            extras.append(Alert("queue_lost", f"{q['lost']} job(s) perdidos na fila após várias devoluções."))
+    retencao = None
+    if forcar_retencao or retention_due(settings):
+        retencao = run_retention_locked(settings)
+        log_event(logger, "Retenção executada", **{k: v for k, v in retencao.items() if k != "failures"},
+                  failures=len(retencao.get("failures", [])))
+        if retencao.get("failures"):
+            extras.append(Alert("retencao", f"A retenção teve {len(retencao['failures'])} falha(s); será "
+                                            "tentada de novo na próxima rodada."))
+    with get_sessionmaker()() as db:
+        alertas = evaluate(db, settings) + extras
+        enviados = send(settings, alertas)
+        relatorio = send_daily_report(db, settings) if daily_report_due(settings) else None
+    return {"manutencao": rodada, "retencao": retencao, "alertas": [a.key for a in alertas],
+            "alertas_enviados": [a.key for a in enviados], "relatorio_enviado": relatorio is not None}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manutenção do AutoClip IA")
     parser.add_argument("--loop", action="store_true", help="repete a cada MAINTENANCE_INTERVAL_SECONDS")
@@ -85,15 +117,11 @@ def main() -> None:
     configure_logging(settings.log_level)
     while True:
         try:
-            log_event(logger, "Manutenção executada", **run_maintenance(settings))
-            if args.retencao:
-                log_event(logger, "Retenção executada (manual)", **run_retention_locked(settings))
-            elif retention_due(settings):
-                report = run_retention_locked(settings)
-                log_event(logger, "Retenção executada", **{k: v for k, v in report.items() if k != "failures"},
-                          failures=len(report.get("failures", [])))
+            ciclo(settings, forcar_retencao=args.retencao)
         except Exception:
             logger.exception("Falha na manutenção")
+            from app.services.alerts import Alert, send
+            send(settings, [Alert("manutencao", "A manutenção periódica falhou; veja os logs do serviço.")])
         if not args.loop:
             break
         time.sleep(settings.maintenance_interval_seconds)

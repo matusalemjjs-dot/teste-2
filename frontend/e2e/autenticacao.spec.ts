@@ -28,11 +28,18 @@ test("usuário autenticado vê o painel vazio e consegue sair", async ({ page })
   await expect(page).toHaveURL(/\/entrar/);
 });
 
-test("token inválido não acessa dados", async ({ page }) => {
-  await page.addInitScript(() => window.localStorage.setItem("autoclip_test_token", "eyJhbGciOiJIUzI1NiJ9.e30.x"));
+test("token inválido ou expirado volta ao login com aviso", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!window.sessionStorage.getItem("inj")) {
+      window.localStorage.setItem("autoclip_test_token", "eyJhbGciOiJIUzI1NiJ9.e30.x");
+      window.sessionStorage.setItem("inj", "1");
+    }
+  });
   await page.goto("/painel");
-  await expect(page.getByRole("main").getByRole("alert")).toContainText(/Token|Sessão|inválid/i);
+  await expect(page).toHaveURL(/\/entrar\?expirada=1/);
+  await expect(page.getByText("Sua sessão expirou. Entre novamente para continuar.")).toBeVisible();
 });
+
 
 test("beta fechado: cadastro mostra acesso por convite", async ({ page }) => {
   await page.goto("/cadastro");

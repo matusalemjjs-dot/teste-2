@@ -74,6 +74,20 @@ def enviar_convite_supabase(settings: Settings, email: str) -> str:
         return "Supabase inacessível; convide pelo painel do Supabase"
 
 
+def _avaliacoes(db, desde: datetime) -> dict:
+    """Última avaliação de cada corte na janela: útil x não útil e a nota estimada média de cada grupo."""
+    ultima: dict = {}
+    for res, det in db.execute(select(AuditEvent.resource_id, AuditEvent.details).where(
+            AuditEvent.action == "clip.feedback", AuditEvent.created_at >= desde)
+            .order_by(AuditEvent.created_at, AuditEvent.id)):
+        ultima[res] = det or {}
+    util = [d.get("nota") for d in ultima.values() if d.get("util")]
+    nao = [d.get("nota") for d in ultima.values() if not d.get("util")]
+    media = lambda xs: round(statistics.mean(x for x in xs if x is not None), 1) if any(  # noqa: E731
+        x is not None for x in xs) else None
+    return {"util": len(util), "nao_util": len(nao), "nota_media_util": media(util), "nota_media_nao_util": media(nao)}
+
+
 def relatorio(db, settings: Settings, horas: int, now: datetime | None = None) -> dict:
     now = now or datetime.now(UTC)
     desde = now - timedelta(hours=horas)
@@ -130,6 +144,7 @@ def relatorio(db, settings: Settings, horas: int, now: datetime | None = None) -
             "p95_min": round(sorted(duracoes)[int(0.95 * (len(duracoes) - 1))] / 60, 1) if duracoes else None,
             "por_minuto_de_video": round(statistics.median(razoes), 2) if razoes else None},
         "fila": fila,
+        "avaliacoes_dos_cortes": _avaliacoes(db, desde),
         "retencao_eventos_na_janela": db.scalar(select(func.count()).select_from(AuditEvent).where(
             AuditEvent.action.like("retention.%"), AuditEvent.created_at >= desde)),
     }
@@ -149,6 +164,9 @@ def _imprimir_relatorio(r: dict) -> None:
           f"{t['por_minuto_de_video']} min por minuto de vídeo")
     print(f"Fila: {f['no_banco_na_fila']} na fila (Redis: {f['no_redis']}), {f['rodando']} rodando, "
           f"workers vivos: {f['workers_vivos']}, espera mais antiga {f['espera_mais_antiga_min']} min")
+    a = r["avaliacoes_dos_cortes"]
+    print(f"Avaliações dos cortes: {a['util']} úteis (nota média {a['nota_media_util']}), {a['nao_util']} não úteis "
+          f"(nota média {a['nota_media_nao_util']})")
     print(f"Eventos de retenção na janela: {r['retencao_eventos_na_janela']}")
 
 

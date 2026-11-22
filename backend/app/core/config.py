@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     llm_budget_per_user_usd: float = 3.0  # 0 desativa
     llm_budget_total_usd: float = 40.0  # 0 desativa
     frontend_url: str = "http://localhost:3000"  # usado nos links de convite
+
+    # Monitoramento e alertas
+    alert_webhook_url: SecretStr | None = None  # Slack, Discord ou endpoint próprio (contém segredo na URL)
+    alert_webhook_format: str = "slack"  # slack ({"text"}) | discord ({"content"}) | json
+    alert_repeat_minutes: int = 60  # o mesmo alerta não é repetido antes disso
+    alert_failures_per_hour: int = 3
+    alert_queue_wait_minutes: int = 15
+    alert_budget_fraction: float = 0.8
+    daily_report_enabled: bool = True
+    daily_report_interval_hours: int = 24
+    client_errors_per_minute: int = 30  # por IP, para /client-errors e /csp-report
     ffmpeg_threads: int = 2
 
     # Transcrição (provedor substituível por configuração)

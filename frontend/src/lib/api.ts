@@ -27,7 +27,7 @@ export type Clip = {
   id: string; project_id: string; title: string; justification: string | null; score: number;
   start_seconds: number; end_seconds: number; duration_seconds: number; status: string; layout: string;
   render_version: number; error_code: string | null; width: number | null; height: number | null;
-  size_bytes: number | null; thumbnail_url: string | null; has_subtitles: boolean;
+  size_bytes: number | null; thumbnail_url: string | null; has_subtitles: boolean; feedback: boolean | null;
 };
 export type UploadTicket = { asset_id: string; url: string; fields: Record<string, string>; expires_at: string; max_bytes: number };
 export type DownloadUrl = { url: string; expires_at: string; filename: string };
@@ -50,6 +50,9 @@ export async function api<T>(token: string | null, path: string, init: RequestIn
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => null);
+  if (res.status === 401 && token && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("autoclip:sessao-expirada"));
+  }
   if (!res.ok) {
     let message = typeof data?.detail === "string" ? data.detail : "Ocorreu um erro. Tente novamente.";
     if (Array.isArray(data?.erros) && data.erros[0]?.mensagem) message = data.erros[0].mensagem;

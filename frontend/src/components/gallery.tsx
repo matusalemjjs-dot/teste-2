@@ -30,6 +30,11 @@ function ClipCard({ clip, onChanged, sourceAvailable }: { clip: Clip; onChanged:
     const d = await url(file, "attachment");
     window.location.assign(d.url);
   });
+  const [feedback, setFeedback] = useState<boolean | null>(clip.feedback);
+  const avaliar = (util: boolean) => run(async () => {
+    const r = await api<Clip>(token, `/api/v1/clips/${clip.id}/feedback`, { method: "POST", body: JSON.stringify({ util }) });
+    setFeedback(r.feedback);
+  });
   const regenerate = () => run(async () => {
     await api(token, `/api/v1/clips/${clip.id}/regenerate`, { method: "POST", body: JSON.stringify({ layout, subtitles }) });
     setShowOptions(false);
@@ -47,7 +52,7 @@ function ClipCard({ clip, onChanged, sourceAvailable }: { clip: Clip; onChanged:
             <img src={clip.thumbnail_url} alt={`Miniatura do corte: ${clip.title}`} className="h-full w-full object-cover" />
           ) : <div className="flex h-full items-center justify-center text-sm text-slate-300">Sem miniatura</div>}
         <span className="absolute left-2 top-2 rounded-full bg-black/75 px-2 py-0.5 text-xs font-bold text-white">
-          Nota {clip.score}/100</span>
+          Nota estimada {clip.score}/100</span>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <h3 className="font-semibold leading-snug">{clip.title}</h3>
@@ -67,6 +72,17 @@ function ClipCard({ clip, onChanged, sourceAvailable }: { clip: Clip; onChanged:
           <Button variant="secondary" onClick={() => setShowOptions((v) => !v)} disabled={busy || !sourceAvailable}
             title={sourceAvailable ? undefined : "O vídeo original já foi apagado pela política de retenção"}
             aria-expanded={showOptions}>Regenerar</Button>
+        </div>
+        <div className="flex items-center gap-2 text-sm" role="group" aria-label="Este corte foi útil?">
+          <span className="text-slate-700">Este corte foi útil?</span>
+          <button type="button" aria-pressed={feedback === true} onClick={() => avaliar(true)}
+            className={`min-h-9 rounded-full px-3 font-semibold ring-1 ${feedback === true
+              ? "bg-emerald-700 text-white ring-emerald-700" : "text-slate-800 ring-slate-300 hover:bg-slate-50"}`}>
+            Útil</button>
+          <button type="button" aria-pressed={feedback === false} onClick={() => avaliar(false)}
+            className={`min-h-9 rounded-full px-3 font-semibold ring-1 ${feedback === false
+              ? "bg-slate-700 text-white ring-slate-700" : "text-slate-800 ring-slate-300 hover:bg-slate-50"}`}>
+            Não útil</button>
         </div>
         {showOptions && (
           <fieldset className="mt-2 space-y-3 rounded-lg border border-slate-200 p-3">

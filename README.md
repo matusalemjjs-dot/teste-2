@@ -234,6 +234,26 @@ python -m app.admin relatorio [--horas 24] [--json]
 
 Cada comando que altera algo é registrado na auditoria (`admin.*`, com o usuário do sistema).
 
+### Monitoramento
+
+- `GET /health` (processo vivo) e `GET /health/ready` (banco, Redis, armazenamento, worker vivo e fila; 503 se
+  algo essencial falhar) — aponte o monitor de disponibilidade externo para `/health/ready`.
+- **Alertas** (`ALERT_WEBHOOK_URL`, formatos `slack`, `discord` ou `json`), avaliados pela manutenção a cada
+  5 min: falhas acima de `ALERT_FAILURES_PER_HOUR`, espera na fila acima de `ALERT_QUEUE_WAIT_MINUTES`, nenhum
+  worker vivo, Redis inacessível, custo de IA acima de `ALERT_BUDGET_FRACTION` do teto, jobs perdidos, falha na
+  retenção ou na própria manutenção. Todo alerta também vai para o log (ERROR); o mesmo alerta não se repete
+  antes de `ALERT_REPEAT_MINUTES`. Sem dados pessoais.
+- **Relatório diário** no mesmo webhook (o mesmo de `python -m app.admin relatorio`), incluindo as avaliações dos
+  cortes ("útil"/"não útil" e a nota estimada média de cada grupo).
+- **Erros do navegador**: erros de JavaScript e relatórios de CSP vão para `POST /api/v1/client-errors` e
+  `/api/v1/csp-report` (só log, sem consulta da URL nem tokens; limite por IP).
+- **Cabeçalhos**: o frontend envia `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`
+  e a CSP **em modo só observação** (`Content-Security-Policy-Report-Only`); defina `NEXT_PUBLIC_STORAGE_ORIGIN`
+  com a origem do armazenamento. A API envia `nosniff`, `no-referrer`, `Cache-Control: no-store` e, com
+  `ENVIRONMENT=production`, desliga `/docs`, `/redoc` e `/openapi.json`.
+- **Modo de login de teste**: o build do frontend falha com `NEXT_PUBLIC_AUTH_MODE=test`, a menos que
+  `AUTOCLIP_ALLOW_TEST_AUTH=1` (usado só pelos testes E2E).
+
 **Exclusão de projeto** — trava o projeto; jobs ainda na fila (ex.: regeneração presa) são cancelados e o
 projeto é excluído; com job rodando, a resposta é 409 até ele terminar ou ser recuperado.
 

@@ -210,6 +210,7 @@ class ClipOut(BaseModel):
     size_bytes: int | None = None
     thumbnail_url: str | None = Field(None, description="URL temporária da miniatura")
     has_subtitles: bool
+    feedback: bool | None = Field(None, description="Avaliação do usuário: true = útil, false = não útil")
     created_at: datetime
     updated_at: datetime
 
@@ -229,6 +230,10 @@ class DownloadUrlOut(BaseModel):
     url: str
     expires_at: datetime
     filename: str
+
+
+class FeedbackRequest(BaseModel):
+    util: bool = Field(description="O corte foi útil?")
 
 
 class RegenerateRequest(BaseModel):

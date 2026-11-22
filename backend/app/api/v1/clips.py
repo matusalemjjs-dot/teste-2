@@ -8,7 +8,16 @@ from app.api.deps import DB, CurrentProfile
 from app.core.config import Settings, get_settings
 from app.core.ratelimit import rate_limit_expensive
 from app.models.enums import ClipStatus
-from app.schemas import DownloadUrlOut, DownloadUrlRequest, ErrorResponse, JobOut, RegenerateOut, RegenerateRequest
+from app.schemas import (
+    ClipOut,
+    DownloadUrlOut,
+    DownloadUrlRequest,
+    ErrorResponse,
+    FeedbackRequest,
+    JobOut,
+    RegenerateOut,
+    RegenerateRequest,
+)
 from app.services import audit
 from app.services import clips as svc
 from app.services import jobs as jobs_svc
@@ -79,3 +88,14 @@ def regenerate(clip_id: uuid.UUID, body: RegenerateRequest, db: DB, profile: Cur
     body_out = RegenerateOut(clip=svc.to_out(db, clip, storage, settings), job=JobOut.model_validate(job),
                              created=created)
     return JSONResponse(status_code=202 if created else 200, content=body_out.model_dump(mode="json"))
+
+
+@router.post("/{clip_id}/feedback", response_model=ClipOut, responses=NOT_FOUND,
+             summary="Avaliar o corte (útil ou não útil)",
+             description="Ajuda a medir a qualidade da seleção de melhores momentos. A última avaliação vale.")
+def feedback(clip_id: uuid.UUID, body: FeedbackRequest, db: DB, profile: CurrentProfile, storage: StorageDep,
+             settings: SettingsDep) -> ClipOut:
+    clip = _load(db, profile, clip_id)
+    audit.record(db, profile.id, "clip.feedback", "clip", clip.id, {"util": body.util, "nota": clip.score})
+    db.commit()
+    return svc.to_out(db, clip, storage, settings)

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Footer, Header, TestModeBanner } from "@/components/app-shell";
+import { ErrorReporter } from "@/components/error-reporter";
 import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
@@ -14,6 +15,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         <a href="#conteudo" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50
           focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:shadow">Pular para o conteúdo</a>
+        <ErrorReporter />
         <AuthProvider>
           <TestModeBanner />
           <Header />

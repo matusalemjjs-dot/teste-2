@@ -14,6 +14,7 @@ function Dashboard() {
   const fetcher = useCallback(() => Promise.all([
     api<Me>(token, "/api/v1/me"),
     api<{ items: Project[] }>(token, "/api/v1/projects?limit=100"),
+    api<{ total: number }>(token, "/api/v1/projects?status=completed&limit=1"),
   ]), [token]);
   // atualiza a cada 5 s (status e progresso dos projetos em andamento)
   const { data, error: apiError } = useApiData(fetcher, 5000);
@@ -22,7 +23,7 @@ function Dashboard() {
   const error = apiError?.message ?? null;
 
   const usage = me?.usage;
-  const completed = projects?.filter((p) => p.status === "completed").length ?? 0;
+  const completed = data?.[2].total ?? 0; // total real (não só os 100 mais recentes da lista)
   return (
     <Page title="Painel">
       {error && <div className="mb-4"><Alert>{error}</Alert></div>}

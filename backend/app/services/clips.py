@@ -29,6 +29,15 @@ def safe_filename(title: str, ext: str) -> str:
     return f"{slug}.{ext}"
 
 
+def latest_feedback(db: Session, clip: Clip) -> bool | None:
+    from app.models import AuditEvent
+
+    details = db.scalar(select(AuditEvent.details).where(
+        AuditEvent.action == "clip.feedback", AuditEvent.resource_id == clip.id, AuditEvent.actor_id == clip.owner_id)
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(1))
+    return None if details is None else bool(details.get("util"))
+
+
 def to_out(db: Session, clip: Clip, storage: Storage, settings: Settings) -> ClipOut:
     assets = {a.id: a for a in db.scalars(select(MediaAsset).where(MediaAsset.id.in_(
         [i for i in (clip.video_asset_id, clip.thumbnail_asset_id) if i])))}
@@ -44,7 +53,8 @@ def to_out(db: Session, clip: Clip, storage: Storage, settings: Settings) -> Cli
         status=clip.status, layout=clip.layout, render_version=clip.render_version, error_code=clip.error_code,
         width=video.width if video else None, height=video.height if video else None,
         size_bytes=video.size_bytes if video else None, thumbnail_url=thumb_url,
-        has_subtitles=clip.subtitle_asset_id is not None, created_at=clip.created_at, updated_at=clip.updated_at,
+        has_subtitles=clip.subtitle_asset_id is not None, feedback=latest_feedback(db, clip),
+        created_at=clip.created_at, updated_at=clip.updated_at,
     )
 
 
