@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     s3_access_key_id: SecretStr | None = None
     s3_secret_access_key: SecretStr | None = None
     s3_force_path_style: bool = True
+    s3_cors_origins: list[str] = ["http://localhost:3000"]  # origens do frontend que enviam arquivos direto
 
     # FFmpeg / FFprobe
     ffprobe_path: str = "ffprobe"

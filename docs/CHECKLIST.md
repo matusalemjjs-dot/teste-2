@@ -32,7 +32,7 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [x] Metadados livres (título, GPS) não são armazenados
 - [x] Assinaturas de URL removidas dos logs
 - [ ] `docker compose up` com MinIO — **não executado** (sem Docker daemon no ambiente de desenvolvimento)
-- [ ] Envio pelo navegador (CORS) — Etapa 8
+- [x] Envio pelo navegador (CORS) — verificado no E2E da Etapa 8 (S3 emulado)
 
 ## Etapa 3
 - [x] `POST /process` exige upload validado; isolamento por usuário (404)
@@ -117,6 +117,22 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Limite por IP para requisições não autenticadas — não implementado (tokens JWT, sem senha na API)
 - [ ] Valores de custo por minuto reais — dependem da sua infraestrutura (padrão 0)
 
+## Etapa 8 (Playwright, pilha real)
+- [x] Rota protegida redireciona para `/entrar`; token inválido não acessa dados; sair limpa a sessão
+- [x] Fluxo completo no navegador: criar projeto → upload direto ao storage (CORS) com progresso → validação →
+      processamento real (transcrição, renderização) → galeria → reprodução 1080x1920 → download MP4 → regeneração
+- [x] Upload inválido (não é vídeo; extensão errada) recusado com mensagem clara
+- [x] Confirmação de direitos obrigatória; usuário não vê projeto de outro; cancelar e excluir
+- [x] Painel mostra vídeos processados e minutos consumidos
+- [x] Acessibilidade: nenhuma violação séria/crítica (axe, WCAG 2 A/AA) nas telas públicas, painel e novo projeto
+- [x] Responsivo: sem rolagem horizontal no celular (Pixel 7)
+- [x] `npm run lint`, `npm run typecheck` e `next build` sem erros
+- [ ] Cadastro, login, logout e recuperação de senha com um projeto Supabase real — **não testados** (sem projeto
+      Supabase neste ambiente); o código usa `signUp`, `signInWithPassword`, `resetPasswordForEmail`,
+      `updateUser` e `onAuthStateChange` do supabase-js
+- [ ] Acessibilidade da galeria com leitor de tela real — não testada (só verificação automática)
+- [ ] Frontend no Windows — não executado
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível
@@ -127,4 +143,4 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [x] Corte reproduzível e baixável em MP4
 - [x] Falhas registradas sem travar o sistema
 - [x] Requisição repetida não duplica processamento nem cobrança
-- [ ] Testes E2E Playwright (Etapa 8)
+- [x] Testes E2E Playwright

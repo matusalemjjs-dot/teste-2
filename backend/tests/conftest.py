@@ -172,20 +172,7 @@ def speech_video(tmp_path_factory):
     return make_speech_video(tmp_path_factory.mktemp("fala") / "fala.mp4", FALA)
 
 
-FALA_LONGA = (
-    "Você sabia que a maioria das pessoas desiste de aprender inglês nos primeiros três meses? "
-    "Hoje eu vou contar por que isso acontece e como evitar. "
-    "O primeiro erro é estudar sem objetivo. "
-    "Quando você não sabe por que está estudando, qualquer desculpa vira motivo para parar. "
-    "O segundo erro é querer aprender tudo de uma vez. Gramática, vocabulário, pronúncia, tudo no mesmo dia. "
-    "Isso cansa e frustra. "
-    "Agora a parte importante. O segredo é a constância. Quinze minutos por dia valem mais do que três horas no "
-    "domingo. "
-    "Eu mesmo aprendi assim, ouvindo podcasts no caminho do trabalho, todos os dias, durante um ano inteiro. "
-    "E o resultado me surpreendeu. "
-    "Então a minha dica final é simples. Escolha um horário fixo, comece pequeno e não pare. "
-    "Se este vídeo te ajudou, compartilhe com alguém que está tentando aprender."
-)
+from tests.media import FALA_LONGA  # noqa: E402
 
 
 @pytest.fixture(scope="session")

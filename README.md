@@ -4,14 +4,18 @@ Plataforma SaaS que transforma vídeos longos em cortes curtos usando transcriç
 processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADMAP.md](docs/ROADMAP.md) e
 [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-> **Estado atual: Etapa 7 (consumo, cotas e limite de requisições).** O pipeline completo funciona: upload, validação,
+> **Estado atual: Etapa 8 (frontend).** Interface web completa em `frontend/`. O pipeline completo funciona: upload, validação,
 > fila, transcrição, análise por IA, renderização vertical com legendas, miniaturas, download e regeneração.
 > Sem `ANTHROPIC_API_KEY`, a análise falha com `analysis_misconfigured` e nenhum corte é gerado.
-> Ainda não há frontend (Etapa 8). Nada neste repositório simula resultados de processamento.
+> Nada neste repositório simula resultados de processamento.
 
 ## Estrutura
 
 ```
+frontend/           Next.js 16 + React 19 + TypeScript + Tailwind (interface em português)
+  src/app/          páginas: entrar, cadastro, recuperar/redefinir senha, painel, novo projeto, projeto/galeria
+  src/lib/          autenticação (Supabase), cliente da API, formatação
+  e2e/              testes Playwright contra a pilha real
 backend/            API FastAPI (Python 3.12+)
   app/core/         configuração, logs estruturados, validação de JWT
   app/models/       modelo de dados SQLAlchemy (10 tabelas)
@@ -222,6 +226,25 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
+### Frontend no Windows
+
+Pré-requisito: [Node.js 22 LTS](https://nodejs.org/). Em outro terminal PowerShell:
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.example .env.local   # preencha NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY
+npm run dev                         # http://localhost:3000
+```
+
+Configuração no painel do Supabase (Authentication > URL Configuration): **Site URL** `http://localhost:3000` e
+**Redirect URLs** `http://localhost:3000/entrar` e `http://localhost:3000/redefinir-senha`. No backend,
+`SUPABASE_URL` deve ser o mesmo projeto.
+
+O navegador envia o vídeo direto ao storage, então o bucket precisa aceitar a origem do frontend (CORS):
+- MinIO do `docker compose`: já liberado para `http://localhost:3000` (`MINIO_API_CORS_ALLOW_ORIGIN`);
+- AWS S3 / R2 / outros: defina `S3_CORS_ORIGINS` e rode `python -m app.storage_setup` no backend.
+
 ### Worker no Windows
 
 O RQ depende de `fork()`, que não existe no Windows. Opções:
@@ -232,7 +255,20 @@ O RQ depende de `fork()`, que não existe no Windows. Opções:
 3. Nativo: `python -m app.worker.run` usa um worker sem fork, com timeout por temporizador e **sem** limites
    de memória/CPU. Use só para testes locais — esse modo não foi testado em Windows.
 
-### Testes
+### Testes de ponta a ponta (Playwright)
+
+```bash
+cd frontend && npm run test:e2e
+```
+
+O Playwright sobe sozinho a pilha completa (`backend/tests/e2e/stack.py`): S3 emulado com CORS, Redis, banco
+`autoclip_e2e` recém-migrado, **worker real** (FFmpeg, Whisper `tiny`) e API, além do frontend compilado em
+modo de teste de autenticação (token HS256 assinado pelo próprio teste; aparece a faixa "Modo de teste").
+A única peça substituída é o avaliador de IA (o worker E2E usa o avaliador de teste, definido em
+`backend/tests/e2e/worker.py`, fora do código do produto). Requer o backend instalado (`backend/.venv`),
+PostgreSQL acessível com o usuário `autoclip`, `redis-server`, `ffmpeg` e `espeak-ng` — no Windows, rode no WSL2.
+
+### Testes do backend
 
 Os testes usam o banco `autoclip_test` (criado automaticamente pelo `docker compose` na primeira subida), um
 emulador S3 local (moto, iniciado pelos próprios testes), um `redis-server` iniciado pelos testes e vídeos
