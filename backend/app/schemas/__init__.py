@@ -1,0 +1,69 @@
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.enums import ProjectStatus
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+class MeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    email: str | None
+    display_name: str | None
+    is_admin: bool
+    created_at: datetime
+
+
+class ProjectCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    # O usuário precisa declarar que tem autorização para processar o conteúdo (LGPD/direitos autorais).
+    rights_confirmed: bool = Field(description="Confirma que o usuário tem direito de processar o conteúdo")
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("O título não pode ficar vazio")
+        return v
+
+    @field_validator("rights_confirmed")
+    @classmethod
+    def must_confirm(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("É necessário confirmar que você tem autorização para processar este conteúdo")
+        return v
+
+
+class ProjectOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    title: str
+    status: ProjectStatus
+    progress: int
+    status_message: str | None
+    error_code: str | None
+    source_duration_seconds: float | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectList(BaseModel):
+    items: list[ProjectOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class ProjectStatusOut(BaseModel):
+    id: uuid.UUID
+    status: ProjectStatus
+    progress: int
+    status_message: str | None
+    error_code: str | None
+    updated_at: datetime
