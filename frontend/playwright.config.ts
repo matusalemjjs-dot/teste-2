@@ -2,9 +2,11 @@ import { defineConfig, devices } from "@playwright/test";
 
 // Testes de ponta a ponta contra a pilha real (API, worker, Redis, S3 emulado, Postgres).
 // A pilha é iniciada por backend/tests/e2e/stack.py; o frontend roda em modo de teste de autenticação.
+// Com E2E_BASE_URL e E2E_API_URL, roda contra uma pilha já no ar (ex.: a pilha de produção local, docs/IMPLANTACAO.md).
 export const E2E_JWT_SECRET = "segredo-e2e-apenas-local-com-32-bytes-ou-mais";
-const WEB = "http://127.0.0.1:3100";
-const API = "http://127.0.0.1:8100";
+const EXTERNA = Boolean(process.env.E2E_BASE_URL);
+const WEB = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3100";
+export const API = process.env.E2E_API_URL ?? "http://127.0.0.1:8100";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -13,12 +15,12 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],
-  use: { baseURL: WEB, trace: "off", locale: "pt-BR", acceptDownloads: true },
+  use: { baseURL: WEB, trace: "off", locale: "pt-BR", acceptDownloads: true, ignoreHTTPSErrors: EXTERNA },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] }, testIgnore: /responsivo/ },
     { name: "celular", use: { ...devices["Pixel 7"] }, testMatch: /responsivo/ },
   ],
-  webServer: [
+  webServer: EXTERNA ? undefined : [
     {
       command: "cd ../backend && .venv/bin/python -m tests.e2e.stack",
       url: `${API}/health`,

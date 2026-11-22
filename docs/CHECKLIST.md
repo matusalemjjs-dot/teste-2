@@ -222,6 +222,9 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
       interno, 10 serviços, migrate, prontidão, `/docs` 404, cabeçalhos, convite, upload, validação, transcrição no
       worker com limites, administração, backup, alerta de worker parado)
 - [x] Suíte completa do backend (246) **dentro da imagem de produção** (FFmpeg 7.1, Python 3.12)
+- [x] Playwright (30 testes, desktop e celular) **contra a pilha de produção** pelo HTTPS do Caddy — com frontend
+      em modo de autenticação de teste e avaliador de teste no lugar do Claude; transcrição (Whisper `small`),
+      renderização e regeneração reais no worker de produção
 - [ ] Certificado real e pilha na VM com provedores reais
 - [ ] Substituir a imagem MinIO do `docker-compose.yml` de desenvolvimento (indisponível no Docker Hub) — aguarda aprovação
 - [ ] Cópia dos backups para fora da VM — recomendação; depende do provedor

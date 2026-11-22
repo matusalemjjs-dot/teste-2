@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
+import { API } from "../playwright.config";
 import { login, NOT_VIDEO, novoProjeto, VIDEO } from "./helpers";
 
 test("envio, processamento real, galeria, reprodução, download e regeneração", async ({ page }) => {
@@ -137,8 +138,8 @@ test("cabeçalhos de segurança e CSP em modo observação", async ({ page }) =>
   expect(h["content-security-policy"]).toBeUndefined(); // ainda não bloqueia
   const csp = h["content-security-policy-report-only"];
   expect(csp).toContain("frame-ancestors 'none'");
-  expect(csp).toContain("connect-src 'self' http://127.0.0.1:8100");
-  expect(csp).toContain("report-uri http://127.0.0.1:8100/api/v1/csp-report");
+  expect(csp).toContain(`connect-src 'self' ${API}`);
+  expect(csp).toContain(`report-uri ${API}/api/v1/csp-report`);
 });
 
 test("página não encontrada em português", async ({ page }) => {

@@ -10,7 +10,11 @@ Arquivos: [`deploy/`](../deploy/) e `frontend/Dockerfile`, `backend/Dockerfile`.
 > não convidado (403), upload direto + validação no contêiner, worker transcrevendo com Whisper `small` (6 GB de
 > RAM e 8 GB virtuais aplicados), parada honesta sem chave do Claude, comando de administração, backup e alerta
 > "nenhum worker vivo". A **suíte completa do backend (246 testes) passa dentro da imagem de produção**
-> (Debian 13: FFmpeg 7.1, Python 3.12). Falta na VM: certificado real (Let's Encrypt), provedores reais.
+> (Debian 13: FFmpeg 7.1, Python 3.12). Os **30 testes Playwright** também passam contra essa pilha, pelo HTTPS
+> do Caddy (`E2E_BASE_URL=https://app.localhost E2E_API_URL=https://api.localhost npx playwright test`), com o
+> frontend construído em modo de autenticação de teste e o avaliador de teste no lugar do Claude — por isso
+> não substituem a validação com Supabase e Claude reais. Falta na VM: certificado real (Let's Encrypt),
+> provedores reais.
 
 ## 1. Decisões e contas necessárias
 
