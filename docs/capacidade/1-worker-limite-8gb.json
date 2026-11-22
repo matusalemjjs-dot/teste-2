@@ -1,0 +1,66 @@
+{
+  "cenario": {
+    "workers": 1,
+    "jobs": 1,
+    "video": "video60.mp4",
+    "video_mb": 1133.9,
+    "nproc": 4,
+    "config": {
+      "WHISPER_MODEL": "small",
+      "WHISPER_BEAM_SIZE": "5",
+      "WHISPER_CPU_THREADS": "2",
+      "FFMPEG_THREADS": "2",
+      "RENDER_PRESET": "veryfast",
+      "WORKER_MEMORY_LIMIT_MB": "8192",
+      "JOB_TIMEOUT_SECONDS": "3600"
+    }
+  },
+  "validacao_s": [
+    148.6
+  ],
+  "tempo_total_s": 711.5,
+  "jobs": [
+    {
+      "job": "e379f3b2-55f2-4101-8803-f77b5a5e295a",
+      "status": "succeeded",
+      "error_code": null,
+      "total_s": 710.1,
+      "etapas_s": {
+        "queued": 1.0,
+        "prepare": 3.0,
+        "transcribe": 544.8,
+        "render": 162.7
+      },
+      "cortes": 10,
+      "cortes_prontos": 10,
+      "duracoes_cortes_s": [
+        33.9,
+        35.6,
+        48.2,
+        48.5,
+        50.2,
+        51.3,
+        52.6,
+        52.6,
+        52.9,
+        53.1
+      ]
+    }
+  ],
+  "pico_por_processo": {
+    "python": {
+      "rss_kb": 4173,
+      "hwm_kb": 4308,
+      "vpeak_kb": 7462
+    },
+    "ffmpeg": {
+      "rss_kb": 354,
+      "hwm_kb": 354,
+      "vpeak_kb": 1341
+    }
+  },
+  "pico_rss_total_mb": 4269,
+  "minimo_mem_disponivel_mb": 10457,
+  "pico_tmp_mb": 1243,
+  "carga_media_1min_max": 3.63
+}
