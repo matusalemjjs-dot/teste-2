@@ -12,7 +12,8 @@ processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADM
 ## Implantação (beta)
 
 Produção em uma VM com Docker Compose, HTTPS automático e armazenamento gerenciado: veja
-[docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) (`deploy/`).
+[docs/IMPLANTACAO.md](docs/IMPLANTACAO.md) (`deploy/`). Validação das integrações reais, checklist de liberação e
+acompanhamento do beta: [docs/BETA.md](docs/BETA.md) (`python -m app.validar`).
 
 ## Estrutura
 

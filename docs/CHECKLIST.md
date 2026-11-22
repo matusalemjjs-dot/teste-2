@@ -222,6 +222,17 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Caddyfile e versões das imagens — conferir no primeiro `up`
 - [ ] Cópia dos backups para fora da VM — recomendação; depende do provedor
 
+## Etapa 9 — Lote 7 (validação real e liberação)
+- [x] `python -m app.validar armazenamento|supabase|claude|tudo` com APROVADO/REPROVADO/PULADO e evidências;
+      código de saída 1 se algo reprovar; objetos temporários apagados
+- [x] Contra o emulador S3, o validador **reprova** o que o emulador não aplica (expiração, limite de tamanho e de
+      tipo no upload, CORS de outras origens) — prova de que detecta; Supabase e Claude testados contra servidores
+      locais (inclui cálculo do custo e da reserva sugerida)
+- [x] Roteiro do beta ([BETA.md](BETA.md)): checklist de liberação, acompanhamento, critérios de pausa, incidentes,
+      mensagem aos convidados, encerramento
+- [ ] Executar `app.validar` com armazenamento, Supabase e Claude reais — depende das chaves e da VM
+- [ ] Decisão sobre os dados no fim do beta (apagar ou migrar)
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível
