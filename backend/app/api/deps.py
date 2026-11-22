@@ -30,7 +30,13 @@ def get_auth_user(
 
 
 def get_current_profile(user: Annotated[AuthUser, Depends(get_auth_user)], db: DB) -> Profile:
-    """Garante que o perfil exista (criado no primeiro acesso) de forma idempotente."""
+    """Garante que o perfil exista (criado no primeiro acesso) de forma idempotente. No beta fechado, só
+    e-mails convidados passam (verificado em toda requisição: revogar vale na hora, após o cache de 30 s)."""
+    from app.services.invites import is_invited
+
+    if not is_invited(db, get_settings(), user.email):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "O AutoClip IA está em beta fechado e este e-mail não está na lista de convidados.")
     profile = db.get(Profile, user.id)
     if profile is None:
         from app.services.account import was_deleted

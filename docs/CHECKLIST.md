@@ -176,6 +176,21 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Exclusão de login com Supabase real — depende da chave `service_role` (Lote 7)
 - [ ] Texto jurídico da política — depende de revisão; contato de suporte (`SUPPORT_EMAIL`) a definir
 
+## Etapa 9 — Lote 4 (convites, limites, custo, administração)
+- [x] Beta fechado: só convidados (configuração, domínio ou comando) usam a API; sem diferenciar maiúsculas;
+      token sem e-mail recusado; revogação vale para perfis existentes e para e-mails da configuração
+- [x] Frontend em modo beta: sem cadastro aberto, "acesso por convite", não convidado vê a mensagem da API
+- [x] Período da cota do beta atravessa a virada do mês (consumo anterior ao período não conta)
+- [x] 1 processamento por vez (429 `concurrent_limit`); 20 regenerações por dia (429 `regeneration_limit`)
+- [x] Reserva de custo de IA: teto por usuário (402 `cost_limit`), reserva liberada ao terminar, custo real medido
+      substitui a reserva; teto global (402 `beta_budget_exhausted`) com pedidos simultâneos de usuários diferentes
+      → exatamente um aceito
+- [x] Administração por linha de comando: convidar/revogar/listar, usuários, suspender/reativar, cota, período,
+      relatório (texto e JSON); comandos auditados com o operador
+- [ ] Convite por e-mail do Supabase (`--enviar-email`) — testado contra servidor local; **não validado com
+      Supabase real**
+- [ ] Recalibrar `LLM_RESERVE_USD_PER_MINUTE` e os tetos com o custo real medido (Lote 7)
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível

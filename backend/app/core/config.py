@@ -1,5 +1,6 @@
 """Configuração central. Todos os segredos vêm de variáveis de ambiente."""
 
+from datetime import datetime
 from functools import lru_cache
 
 from pydantic import Field, SecretStr
@@ -77,6 +78,20 @@ class Settings(BaseSettings):
     support_email: str | None = None  # contato exibido na página de privacidade
     storage_provider_name: str = "a definir"  # nome do provedor de armazenamento (página de privacidade)
     hosting_provider_name: str = "a definir"
+
+    # Beta fechado
+    beta_mode: bool = False  # true: só e-mails convidados usam a API
+    # E-mails convidados (separados por vírgula). Entradas "@dominio" liberam um domínio inteiro (uso em testes).
+    # Convites também podem ser concedidos/revogados pelo comando `python -m app.admin`.
+    beta_allowed_emails: str = ""
+    beta_period_start: datetime | None = None  # período da cota no beta (vale para todos sem período próprio)
+    beta_period_end: datetime | None = None
+    max_active_jobs_per_user: int = 1  # processamentos simultâneos por usuário (0 = sem limite)
+    max_regenerations_per_day: int = 20
+    llm_reserve_usd_per_minute: float = 0.015  # reserva estimada de IA por minuto de vídeo (conservadora)
+    llm_budget_per_user_usd: float = 3.0  # 0 desativa
+    llm_budget_total_usd: float = 40.0  # 0 desativa
+    frontend_url: str = "http://localhost:3000"  # usado nos links de convite
     ffmpeg_threads: int = 2
 
     # Transcrição (provedor substituível por configuração)

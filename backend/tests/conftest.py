@@ -9,6 +9,7 @@ os.environ["SUPABASE_JWT_SECRET"] = "segredo-de-teste-apenas-local-com-32-bytes-
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ.setdefault("WHISPER_MODEL", "tiny")  # modelo pequeno para os testes
 os.environ.setdefault("WHISPER_BEAM_SIZE", "1")
+os.environ.setdefault("MAX_ACTIVE_JOBS_PER_USER", "0")  # testes antigos enfileiram vários projetos do mesmo usuário
 os.environ.setdefault("RENDER_PRESET", "ultrafast")  # resolução final é a real (1080x1920); só acelera o encode
 os.environ.setdefault("ANTHROPIC_API_KEY", "")  # testes não chamam a API real, salvo test_llm_real
 

@@ -31,6 +31,8 @@ ENV = {
     "S3_BUCKET": "autoclip-e2e", "S3_ACCESS_KEY_ID": "e2e", "S3_SECRET_ACCESS_KEY": "e2e-secret",
     "REDIS_URL": f"redis://127.0.0.1:{REDIS_PORT}/0", "QUEUE_NAME": "autoclip-e2e",
     "WHISPER_MODEL": "tiny", "WHISPER_BEAM_SIZE": "1", "RENDER_PRESET": "ultrafast", "ANTHROPIC_API_KEY": "",
+    # beta fechado como em produção; os testes usam e-mails @exemplo.com (domínio liberado só aqui)
+    "BETA_MODE": "true", "BETA_ALLOWED_EMAILS": "@exemplo.com",
     "WORKER_TMP_DIR": tempfile.mkdtemp(prefix="autoclip-e2e-"),
 }
 os.environ.update(ENV)

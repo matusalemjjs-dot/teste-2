@@ -23,6 +23,9 @@ class UsageOut(BaseModel):
     projects_last_24h: int
     projects_per_day: int
     quotas_enabled: bool
+    llm_cost_usd: float = Field(0.0, description="Custo de IA medido no período (estimativa interna, US$)")
+    llm_reserved_usd: float = Field(0.0, description="Custo de IA reservado para vídeos em processamento")
+    llm_budget_usd: float | None = Field(None, description="Teto de custo de IA por usuário no período")
 
 
 class MeOut(BaseModel):

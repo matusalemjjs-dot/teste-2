@@ -5,8 +5,23 @@ import { useState } from "react";
 import { AuthCard } from "@/components/auth-form";
 import { Alert, Button, Field } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { BETA_MODE } from "@/lib/config";
+
+function ConvitePendente() {
+  return (
+    <AuthCard title="Acesso por convite" footer={<>Já recebeu o convite? <Link className="font-semibold text-indigo-800 underline" href="/entrar">Entrar</Link></>}>
+      <p className="text-slate-800">O AutoClip IA está em <strong>beta fechado</strong>. O acesso é feito por convite:
+        quem é convidado recebe um e-mail com o link para criar a senha.</p>
+    </AuthCard>
+  );
+}
 
 export default function Cadastro() {
+  if (BETA_MODE) return <ConvitePendente />;
+  return <CadastroAberto />;
+}
+
+function CadastroAberto() {
   const { signUp } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);

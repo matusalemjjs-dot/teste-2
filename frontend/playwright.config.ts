@@ -32,7 +32,8 @@ export default defineConfig({
       url: WEB,
       timeout: 300_000,
       reuseExistingServer: false,
-      env: { NEXT_PUBLIC_API_URL: API, NEXT_PUBLIC_AUTH_MODE: "test", NEXT_TELEMETRY_DISABLED: "1" },
+      env: { NEXT_PUBLIC_API_URL: API, NEXT_PUBLIC_AUTH_MODE: "test", NEXT_PUBLIC_BETA_MODE: "true",
+        NEXT_TELEMETRY_DISABLED: "1" },
     },
   ],
 });

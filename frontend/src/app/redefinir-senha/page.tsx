@@ -26,7 +26,7 @@ export default function RedefinirSenha() {
   }
 
   return (
-    <AuthCard title="Criar nova senha">
+    <AuthCard title="Criar senha">
       {done ? <Alert kind="success">Senha alterada. <Link className="underline" href="/painel">Ir para o painel</Link></Alert>
         : ready && !token ? <Alert>Link inválido ou expirado. <Link className="underline" href="/recuperar-senha">Peça um novo link</Link>.</Alert>
         : (

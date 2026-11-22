@@ -207,6 +207,33 @@ mantém o registro de consumo sem vínculo pessoal, impede que um token antigo r
 Supabase quando `SUPABASE_SERVICE_ROLE_KEY` está configurada no backend (sem ela, a resposta avisa que o login
 deve ser removido no painel do Supabase). Com processamento rodando, responde 409.
 
+### Beta fechado
+
+- **Convites**: desligue o cadastro público no Supabase (Authentication > Providers > Email: desativar
+  "Allow new users to sign up") e use `BETA_MODE=true` na API. Só e-mails em `BETA_ALLOWED_EMAILS` ou convidados
+  pelo comando de administração passam (403 para os demais, verificado em toda requisição). No frontend,
+  `NEXT_PUBLIC_BETA_MODE=true` troca o cadastro por "acesso por convite". O link de convite do Supabase deve
+  levar a `/redefinir-senha` (Redirect URLs), onde a pessoa cria a senha.
+- **Limites** (configuráveis): cota de minutos no período (`BETA_PERIOD_*` ou período por usuário), 1
+  processamento por vez, 20 regenerações por dia, projetos por dia.
+- **Custo de IA com reserva prévia**: ao enfileirar, reserva-se `LLM_RESERVE_USD_PER_MINUTE` × minutos do vídeo;
+  o pedido é recusado se gasto real + reservas + este vídeo passar do teto do usuário (`LLM_BUDGET_PER_USER_USD`,
+  402 `cost_limit`) ou do beta (`LLM_BUDGET_TOTAL_USD`, 402 `beta_budget_exhausted`; verificação serializada
+  por trava do Postgres). Quando a análise termina, vale o custo real medido pelos tokens.
+- **Administração** (somente no servidor, via SSH com chave; não há rota web de administração):
+
+```bash
+python -m app.admin convidar email@dominio.com [--enviar-email]   # --enviar-email exige SUPABASE_SERVICE_ROLE_KEY
+python -m app.admin revogar email@dominio.com
+python -m app.admin convites | usuarios
+python -m app.admin suspender email@dominio.com | reativar email@dominio.com
+python -m app.admin cota email@dominio.com --minutos 180 --projetos-dia 5
+python -m app.admin periodo --todos --inicio 2026-12-01 --fim 2026-12-14
+python -m app.admin relatorio [--horas 24] [--json]
+```
+
+Cada comando que altera algo é registrado na auditoria (`admin.*`, com o usuário do sistema).
+
 **Exclusão de projeto** — trava o projeto; jobs ainda na fila (ex.: regeneração presa) são cancelados e o
 projeto é excluído; com job rodando, a resposta é 409 até ele terminar ou ser recuperado.
 

@@ -272,6 +272,18 @@ def request_regenerate(db: Session, owner_id: uuid.UUID, clip_id: uuid.UUID, lay
         raise ProcessRejected("source_expired", "O vídeo original deste projeto já foi apagado pela política de "
                                                 "retenção. Os cortes continuam disponíveis, mas não podem ser "
                                                 "regenerados.")
+    from app.core.config import get_settings
+    from app.models import AuditEvent
+
+    settings = get_settings()
+    if settings.quotas_enabled and settings.max_regenerations_per_day > 0:
+        today = db.scalar(select(func.count()).select_from(AuditEvent).where(
+            AuditEvent.actor_id == owner_id, AuditEvent.action == "clip.regenerate",
+            AuditEvent.created_at >= datetime.now(UTC) - timedelta(hours=24))) or 0
+        if today >= settings.max_regenerations_per_day:
+            db.rollback()
+            raise ProcessRejected("regeneration_limit", f"Limite de {settings.max_regenerations_per_day} "
+                                                        "regenerações por dia atingido. Tente amanhã.", 429)
     n = db.scalar(select(func.count()).select_from(ProcessingJob).where(ProcessingJob.clip_id == clip.id)) or 0
     job = ProcessingJob(project_id=project.id, owner_id=owner_id, clip_id=clip.id,
                         job_type=JobType.render_clip.value, status=JobStatus.queued.value,

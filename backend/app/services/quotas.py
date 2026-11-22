@@ -40,6 +40,9 @@ class UsageSummary:
     projects_last_24h: int
     projects_per_day: int
     quotas_enabled: bool
+    llm_cost_usd: float = 0.0
+    llm_reserved_usd: float = 0.0
+    llm_budget_usd: float | None = None
 
 
 def month_bounds(now: datetime) -> tuple[datetime, datetime]:
@@ -57,6 +60,60 @@ def _subscription(db: Session, owner_id: uuid.UUID, settings: Settings, lock: bo
             max_projects_per_day=settings.plan_free_projects_per_day).on_conflict_do_nothing())
         sub = db.scalar(q.with_for_update() if lock else q)
     return sub
+
+
+GLOBAL_BUDGET_LOCK = 7_202_611_003  # serializa a verificação do teto global de custo de IA
+
+
+def _aware(d: datetime | None) -> datetime | None:
+    return d.replace(tzinfo=UTC) if d is not None and d.tzinfo is None else d
+
+
+def period_bounds(sub: Subscription, settings: Settings, now: datetime) -> tuple[datetime, datetime]:
+    """Janela da cota: período próprio da assinatura; senão o período do beta (BETA_PERIOD_*); senão o mês."""
+    s, e = _aware(sub.current_period_start), _aware(sub.current_period_end)
+    if s and e and s <= now < e:
+        return s, e
+    bs, be = _aware(settings.beta_period_start), _aware(settings.beta_period_end)
+    if settings.beta_mode and bs and be and bs <= now < be:
+        return bs, be
+    return month_bounds(now)
+
+
+def _quota_label(start: datetime, end: datetime, now: datetime) -> str:
+    if (start, end) == month_bounds(now):
+        return "cota mensal"
+    return f"cota do período (até {(end - timedelta(seconds=1)).strftime('%d/%m')})"
+
+
+def _llm_spent(db: Session, owner_id: uuid.UUID | None, start: datetime, end: datetime) -> float:
+    q = select(func.coalesce(func.sum(UsageLedger.estimated_cost_usd), 0)).where(
+        UsageLedger.kind == "llm_tokens", UsageLedger.created_at >= start, UsageLedger.created_at < end)
+    if owner_id is not None:
+        q = q.where(UsageLedger.owner_id == owner_id)
+    return float(db.scalar(q) or 0)
+
+
+def _llm_reserved(db: Session, settings: Settings, owner_id: uuid.UUID | None,
+                  exclude: uuid.UUID | None = None) -> float:
+    """Reserva de custo de IA dos projetos em fila/processamento cuja análise ainda não registrou o custo real."""
+    from app.models import ProcessingJob
+
+    q = select(Project.id, Project.source_duration_seconds).where(
+        Project.status.in_((ProjectStatus.queued.value, ProjectStatus.processing.value)))
+    if owner_id is not None:
+        q = q.where(Project.owner_id == owner_id)
+    if exclude is not None:
+        q = q.where(Project.id != exclude)
+    total = 0.0
+    for pid, seconds in db.execute(q).all():
+        job_id = db.scalar(select(ProcessingJob.id).where(ProcessingJob.project_id == pid)
+                           .order_by(ProcessingJob.created_at.desc()).limit(1))
+        measured = db.scalar(select(func.count()).select_from(UsageLedger).where(
+            UsageLedger.idempotency_key == f"llm_tokens:{job_id}")) if job_id else 0
+        if not measured:
+            total += float(seconds or 0) / 60 * settings.llm_reserve_usd_per_minute
+    return total
 
 
 def _used_seconds(db: Session, owner_id: uuid.UUID, start: datetime, end: datetime) -> float:
@@ -83,7 +140,7 @@ def _projects_last_24h(db: Session, owner_id: uuid.UUID, now: datetime) -> int:
 def summary(db: Session, owner_id: uuid.UUID, settings: Settings, now: datetime | None = None) -> UsageSummary:
     now = now or datetime.now(UTC)
     sub = _subscription(db, owner_id, settings, lock=False)
-    start, end = month_bounds(now)
+    start, end = period_bounds(sub, settings, now)
     used = _used_seconds(db, owner_id, start, end) / 60
     reserved = _reserved_seconds(db, owner_id) / 60
     return UsageSummary(plan=sub.plan, status=sub.status, period_start=start, period_end=end,
@@ -91,7 +148,10 @@ def summary(db: Session, owner_id: uuid.UUID, settings: Settings, now: datetime 
                         reserved_minutes=round(reserved, 2),
                         remaining_minutes=round(max(0.0, sub.monthly_minutes_quota - used - reserved), 2),
                         projects_last_24h=_projects_last_24h(db, owner_id, now),
-                        projects_per_day=sub.max_projects_per_day, quotas_enabled=settings.quotas_enabled)
+                        projects_per_day=sub.max_projects_per_day, quotas_enabled=settings.quotas_enabled,
+                        llm_cost_usd=round(_llm_spent(db, owner_id, start, end), 4),
+                        llm_reserved_usd=round(_llm_reserved(db, settings, owner_id), 4),
+                        llm_budget_usd=settings.llm_budget_per_user_usd or None)
 
 
 def _check_active(sub: Subscription) -> None:
@@ -120,15 +180,41 @@ def check_process(db: Session, owner_id: uuid.UUID, project: Project, settings: 
     if db.scalar(select(func.count()).select_from(UsageLedger).where(
             UsageLedger.idempotency_key == f"processed:{project.id}")):
         return  # já cobrado (ex.: reprocessamento futuro): não consome cota de novo
-    start, end = month_bounds(datetime.now(UTC))
+    now = datetime.now(UTC)
+    start, end = period_bounds(sub, settings, now)
     needed = float(project.source_duration_seconds or 0)
     used = _used_seconds(db, owner_id, start, end) + _reserved_seconds(db, owner_id, exclude=project.id)
     available = sub.monthly_minutes_quota * 60 - used
     if needed > available:
         raise QuotaExceeded(
             "quota_exceeded",
-            f"Este vídeo tem {needed / 60:.1f} min e restam {max(0.0, available) / 60:.1f} min da sua cota mensal "
-            f"de {sub.monthly_minutes_quota} min.")
+            f"Este vídeo tem {needed / 60:.1f} min e restam {max(0.0, available) / 60:.1f} min da sua "
+            f"{_quota_label(start, end, now)} de {sub.monthly_minutes_quota} min.")
+
+    # Processamentos simultâneos por usuário
+    active = db.scalar(select(func.count()).select_from(Project).where(
+        Project.owner_id == owner_id, Project.id != project.id,
+        Project.status.in_((ProjectStatus.queued.value, ProjectStatus.processing.value)))) or 0
+    if settings.max_active_jobs_per_user > 0 and active >= settings.max_active_jobs_per_user:
+        raise QuotaExceeded("concurrent_limit", "Você já tem um vídeo em processamento. Aguarde terminar para "
+                                                "enviar outro.", 429)
+
+    # Custo de IA: gasto real (tokens medidos) + reservas em andamento + estimativa deste vídeo
+    need_usd = needed / 60 * settings.llm_reserve_usd_per_minute
+    if settings.llm_budget_per_user_usd > 0:
+        user_total = _llm_spent(db, owner_id, start, end) + _llm_reserved(db, settings, owner_id, project.id)
+        if user_total + need_usd > settings.llm_budget_per_user_usd:
+            raise QuotaExceeded("cost_limit", "O limite de uso de inteligência artificial da sua conta neste "
+                                              "período foi atingido. Fale com o suporte para ampliar.")
+    if settings.llm_budget_total_usd > 0:
+        from sqlalchemy import text
+
+        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": GLOBAL_BUDGET_LOCK})  # até o commit
+        g_start, g_end = (start, end) if (settings.beta_mode and settings.beta_period_start) else month_bounds(now)
+        total = _llm_spent(db, None, g_start, g_end) + _llm_reserved(db, settings, None, project.id)
+        if total + need_usd > settings.llm_budget_total_usd:
+            raise QuotaExceeded("beta_budget_exhausted", "O beta atingiu o limite de processamento por enquanto. "
+                                                         "Avisaremos quando for liberado novamente.")
 
 
 def charge_processed(db: Session, project: Project, job_id: uuid.UUID, settings: Settings) -> None:
