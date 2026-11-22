@@ -88,6 +88,21 @@ class Settings(BaseSettings):
     clip_max_seconds: float = 60
     max_clips: int = 10
 
+    # Renderização dos cortes
+    render_width: int = 1080
+    render_height: int = 1920
+    render_default_layout: str = "center_crop"  # center_crop | blur_background
+    render_preset: str = "veryfast"  # preset do libx264
+    render_crf: int = 21
+    render_audio_bitrate: str = "128k"
+    render_timeout_seconds: int = 900  # por corte
+    render_subtitles: bool = True
+    subtitle_font: str = "DejaVu Sans"
+    subtitle_font_size: int = 80  # em pixels de uma tela 1080x1920
+    subtitle_fonts_dir: str | None = None
+    thumbnail_width: int = 540
+    download_url_expires_seconds: int = 300
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024

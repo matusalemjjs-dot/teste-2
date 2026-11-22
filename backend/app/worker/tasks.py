@@ -54,7 +54,7 @@ def _finish_canceled(job_id: uuid.UUID) -> None:
             db.commit()
 
 
-def _finish_success(job_id: uuid.UUID) -> bool:
+def _finish_success(job_id: uuid.UUID, message: str = "Processamento concluído") -> bool:
     with get_sessionmaker()() as db:
         job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update())
         project = db.scalar(select(Project).where(Project.id == job.project_id).with_for_update())
@@ -64,7 +64,7 @@ def _finish_success(job_id: uuid.UUID) -> bool:
         job.status = JobStatus.succeeded.value
         job.stage = "done"
         job.finished_at = datetime.now(UTC)
-        transition(project, S.completed, "Processamento concluído")
+        transition(project, S.completed, message)
         project.progress = 100
         audit.record(db, project.owner_id, "job.succeeded", "processing_job", job.id)
         db.commit()
@@ -94,7 +94,8 @@ def process_project(job_id: str) -> str:
             stage.run(ctx)
             done += stage.weight
         ctx.checkpoint()
-        result = "succeeded" if _finish_success(jid) else "canceled"
+        result = "succeeded" if _finish_success(jid, ctx.data.get("final_message", "Processamento concluído")) \
+            else "canceled"
         if result == "canceled":
             _finish_canceled(jid)
     except Canceled:
@@ -140,3 +141,62 @@ def on_work_horse_killed(job, retpid, ret_val, rusage) -> None:
 def job_dir_path(job_id: str):
     from app.worker.tmp import tmp_root
     return tmp_root(get_settings()) / f"job-{job_id}"
+
+
+def render_clip(job_id: str) -> str:
+    """Regenera um corte (novo layout/legendas). Não altera o status do projeto."""
+    from app.models import Clip
+    from app.models.enums import ClipStatus
+    from app.pipeline.stages import prepare_source
+    from app.rendering.clips import render_one
+    from app.rendering.render import RenderError
+
+    settings = get_settings()
+    jid = uuid.UUID(job_id)
+    with get_sessionmaker()() as db:
+        job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == jid).with_for_update())
+        if job is None or job.status != JobStatus.queued.value:
+            return "skipped"
+        clip = db.scalar(select(Clip).where(Clip.id == job.clip_id).with_for_update())
+        if clip is None:
+            job.status, job.finished_at = JobStatus.canceled.value, datetime.now(UTC)
+            db.commit()
+            return "skipped"
+        job.status, job.attempts, job.started_at, job.stage = JobStatus.running.value, job.attempts + 1, \
+            datetime.now(UTC), "render"
+        clip.status = ClipStatus.rendering.value
+        project_id, owner_id, clip_id = job.project_id, job.owner_id, clip.id
+        version = clip.render_version + 1
+        opts = job.options or {}
+        db.commit()
+
+    workdir = job_dir(settings, job_id)
+    ctx = JobContext(job_id=jid, project_id=project_id, owner_id=owner_id, workdir=workdir, settings=settings)
+    try:
+        prepare_source(ctx)
+        render_one(ctx, clip_id, layout=opts.get("layout", settings.render_default_layout),
+                   subtitles=bool(opts.get("subtitles", True)), version=version)
+        with get_sessionmaker()() as db:
+            job = db.get(ProcessingJob, jid)
+            job.status, job.stage, job.finished_at = JobStatus.succeeded.value, "done", datetime.now(UTC)
+            audit.record(db, owner_id, "clip.rendered", "clip", clip_id, {"version": version})
+            db.commit()
+        result = "succeeded"
+    except Canceled:
+        _finish_canceled(jid)
+        result = "canceled"
+    except (PipelineError, RenderError) as exc:
+        with get_sessionmaker()() as db:
+            mark_failed(db, jid, exc.code, exc.message, redact(exc.detail) if exc.detail else None)
+        result = "failed"
+    except BaseException as exc:
+        with get_sessionmaker()() as db:
+            mark_failed(db, jid, "internal_error", "Erro inesperado ao regenerar o corte.",
+                        redact(traceback.format_exc()))
+        if not isinstance(exc, Exception):
+            raise
+        result = "failed"
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    log_event(logger, "Regeneração finalizada", job_id=job_id, result=result)
+    return result

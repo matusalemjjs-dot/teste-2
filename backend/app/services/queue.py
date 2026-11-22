@@ -8,6 +8,7 @@ from rq import Queue
 from app.core.config import get_settings
 
 PROCESS_TASK = "app.worker.tasks.process_project"
+RENDER_CLIP_TASK = "app.worker.tasks.render_clip"
 
 
 class QueueUnavailable(Exception):
@@ -24,16 +25,20 @@ def get_queue() -> Queue:
 
 
 def enqueue_process(job_id: str) -> str:
+    return enqueue_task(PROCESS_TASK, job_id)
+
+
+def enqueue_task(task: str, job_id: str) -> str:
     settings = get_settings()
     try:
         job = get_queue().enqueue_call(
-            PROCESS_TASK,
+            task,
             args=(job_id,),
             job_id=job_id,  # o id do job no RQ é o id em processing_jobs
             timeout=settings.job_timeout_seconds,
             result_ttl=3600,
             failure_ttl=7 * 24 * 3600,
-            description=f"process_project {job_id}",
+            description=f"{task.rsplit('.', 1)[-1]} {job_id}",
         )
     except Exception as exc:  # redis indisponível, timeout de conexão etc.
         raise QueueUnavailable(str(exc)) from exc

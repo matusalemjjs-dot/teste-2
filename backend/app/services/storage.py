@@ -33,6 +33,10 @@ def source_video_key(owner_id: uuid.UUID, project_id: uuid.UUID, asset_id: uuid.
     return f"users/{owner_id}/projects/{project_id}/source/{asset_id}.mp4"
 
 
+def clip_key(owner_id: uuid.UUID, project_id: uuid.UUID, clip_id: uuid.UUID, version: int, ext: str) -> str:
+    return f"users/{owner_id}/projects/{project_id}/clips/{clip_id}/v{version}.{ext}"
+
+
 def project_prefix(owner_id: uuid.UUID, project_id: uuid.UUID) -> str:
     return f"users/{owner_id}/projects/{project_id}/"
 
@@ -102,6 +106,12 @@ class Storage:
             return r["Body"].read()
         except ClientError as exc:
             raise StorageError("Falha ao ler o arquivo") from exc
+
+    def upload_file(self, path, key: str, content_type: str) -> None:
+        try:
+            self._internal.upload_file(str(path), self.bucket, key, ExtraArgs={"ContentType": content_type})
+        except (ClientError, OSError) as exc:
+            raise StorageError("Falha ao enviar arquivo ao armazenamento") from exc
 
     def delete(self, key: str) -> None:
         try:

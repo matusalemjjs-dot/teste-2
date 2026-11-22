@@ -86,6 +86,24 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [ ] Uma falha intermitente não identificada em ~12 execuções da suíte (não reproduzida depois; suspeita: testes
       sensíveis a tempo, como cancelamento por temporizador)
 
+## Etapa 6
+- [x] Saída 1080x1920, H.264/AAC, `yuv420p`, pixels quadrados, duração correta — fontes paisagem, retrato,
+      baixa resolução e com rotação, nos dois layouts
+- [x] Legenda queimada visível na região esperada do quadro (comparação de pixels com e sem legenda)
+- [x] Legendas a partir de timestamps por palavra; sem sobreposição; fallback sem timestamps; SRT válido
+- [x] Pipeline completo termina `completed` (progresso 100) com um corte por trecho selecionado
+- [x] Miniatura JPEG acessível por URL temporária
+- [x] Download do MP4 por URL assinada (expira em 300 s, `attachment`); modo `inline` para reprodução; SRT
+- [x] Isolamento: outro usuário recebe 404 em listar, consultar, baixar e regenerar
+- [x] Regenerar: idempotente, nova versão com outro layout, versão antiga removida do storage
+- [x] Falha na regeneração mantém a versão anterior baixável
+- [x] Falha parcial e total na renderização; reprocessar após falha não duplica cortes
+- [x] Projeto com regeneração pendente não pode ser excluído; excluir remove todos os arquivos
+- [x] Consumo de renderização registrado por corte e versão
+- [ ] Fluxo completo com o Claude real — depende de `ANTHROPIC_API_KEY` (os testes usam avaliador de teste)
+- [ ] Tempo de renderização com o preset padrão (`veryfast`) para cortes de 60 s — não medido sistematicamente
+      (amostra: 20 s de vídeo 720p → 3,6 s em `center_crop`, 8,3 s em `blur_background`)
+
 ## Critérios de aceitação gerais (seção 8)
 - [x] Upload de MP4 válido (API + storage S3 emulado)
 - [x] Upload inválido rejeitado com mensagem compreensível
@@ -93,7 +111,7 @@ Legenda: [x] implementado e coberto por teste automatizado executado · [~] parc
 - [x] Vídeo de teste transcrito com timestamps coerentes
 - [~] Seleção por IA devolve candidatos válidos e dentro da duração — validação e seleção testadas; avaliação pelo
       modelo real pendente de chave
-- [ ] Corte reproduzível e baixável em MP4 (Etapa 6)
+- [x] Corte reproduzível e baixável em MP4
 - [x] Falhas registradas sem travar o sistema
 - [x] Requisição repetida não duplica processamento (cobrança: Etapa 7)
 - [ ] Testes E2E Playwright (Etapa 8)

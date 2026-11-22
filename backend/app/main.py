@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api.v1 import me, projects
+from app.api.v1 import clips, me, projects
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import get_engine
@@ -57,6 +57,7 @@ def create_app() -> FastAPI:
 
     app.include_router(me.router, prefix="/api/v1")
     app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(clips.router, prefix="/api/v1")
     return app
 
 

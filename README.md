@@ -4,11 +4,10 @@ Plataforma SaaS que transforma vídeos longos em cortes curtos usando transcriç
 processamento com FFmpeg. Desenvolvida de forma incremental — veja [docs/ROADMAP.md](docs/ROADMAP.md) e
 [docs/CHECKLIST.md](docs/CHECKLIST.md).
 
-> **Estado atual: Etapa 5 (análise inteligente).** Upload, validação, fila, worker, transcrição e análise por IA
-> funcionam. A renderização **ainda não existe**: o projeto termina como `failed` com
-> `error_code=stage_unavailable` na etapa `render`, com transcrição e candidatos salvos
-> (`GET /projects/{id}/transcript` e `/candidates`). Sem `ANTHROPIC_API_KEY`, a análise falha com
-> `analysis_misconfigured`. Nada neste repositório simula resultados de processamento.
+> **Estado atual: Etapa 6 (renderização e galeria via API).** O pipeline completo funciona: upload, validação,
+> fila, transcrição, análise por IA, renderização vertical com legendas, miniaturas, download e regeneração.
+> Sem `ANTHROPIC_API_KEY`, a análise falha com `analysis_misconfigured` e nenhum corte é gerado.
+> Ainda não há frontend (Etapa 8). Nada neste repositório simula resultados de processamento.
 
 ## Estrutura
 
@@ -22,6 +21,7 @@ backend/            API FastAPI (Python 3.12+)
   app/worker/       worker RQ, limites de recursos, limpeza de temporários
   app/transcription/ adaptadores de transcrição (faster-whisper local, serviço externo)
   app/analysis/     janelas candidatas, adaptador do modelo de linguagem, nota e seleção
+  app/rendering/    legendas (ASS/SRT), comandos FFmpeg, publicação dos cortes
   alembic/          migrações
   tests/            Pytest (usa PostgreSQL real)
 infra/              scripts de infraestrutura local
@@ -44,6 +44,10 @@ Documentação OpenAPI interativa em `http://localhost:8000/docs` (JSON em `/ope
 | POST | `/api/v1/projects/{id}/finalize-upload` | Valida o arquivo enviado com FFprobe (idempotente) |
 | GET | `/api/v1/projects/{id}/transcript` | Segmentos transcritos com timestamps |
 | GET | `/api/v1/projects/{id}/candidates` | Trechos avaliados pela IA (`?only_selected=true`) |
+| GET | `/api/v1/projects/{id}/clips` | Cortes do projeto, com miniatura (URL temporária) |
+| GET | `/api/v1/clips/{id}` | Consultar corte |
+| POST | `/api/v1/clips/{id}/download-url` | URL temporária: `{"disposition": "attachment"\|"inline", "file": "video"\|"subtitle"}` |
+| POST | `/api/v1/clips/{id}/regenerate` | Regenerar com `{"layout": "center_crop"\|"blur_background", "subtitles": true}` |
 | POST | `/api/v1/projects/{id}/process` | Enfileirar processamento (idempotente) |
 | POST | `/api/v1/projects/{id}/cancel` | Cancelar, inclusive durante o processamento (idempotente) |
 | DELETE | `/api/v1/projects/{id}` | Excluir projeto **e seus arquivos** (bloqueado durante processamento) |
@@ -89,7 +93,7 @@ Etapas do pipeline (`app/pipeline/stages.py`):
 | `prepare` — baixa o vídeo, confere tamanho e grava o SHA-256 | implementada |
 | `transcribe` — extrai o áudio (FFmpeg), transcreve e grava `transcript_segments` | implementada |
 | `analyze` — janelas de 15–60 s, avaliação pelo Claude, validação e seleção de até 10 trechos | implementada |
-| `render` | Etapa 6 — hoje falha com `stage_unavailable` |
+| `render` — cortes 1080x1920 (H.264/AAC), legendas queimadas + SRT, miniatura, publicação no storage | implementada |
 
 ### Transcrição
 
@@ -127,7 +131,25 @@ vazio. Reprocessar substitui a transcrição anterior. Vídeo sem fala → `no_s
 Custo estimado com `claude-opus-5-5` (US$ 4 / US$ 20 por milhão de tokens de entrada/saída): da ordem de
 US$ 0,30–0,80 por hora de vídeo com 200 janelas — **estimativa, não medida** (veja o checklist).
 
-Erros do worker: `no_candidates`, `analysis_refused`, `analysis_failed`, `analysis_unavailable`,
+### Renderização
+
+- **Formato**: MP4 1080x1920 (`RENDER_WIDTH`/`RENDER_HEIGHT`), H.264 `yuv420p` + AAC, `faststart` (reprodução
+  antes do download completo), sem metadados do arquivo original. O áudio é o original do vídeo.
+- **Layouts** (a proporção nunca é distorcida):
+  - `center_crop` (padrão): amplia até preencher a tela e corta as laterais, centralizado;
+  - `blur_background`: o quadro inteiro fica no centro, sobre uma cópia ampliada e desfocada.
+- **Legendas**: montadas a partir dos timestamps por palavra (até 4 palavras ou 1,8 s por legenda, quebra em
+  pontuação), queimadas no vídeo (ASS/libass, fonte `SUBTITLE_FONT`) e disponíveis em SRT.
+- Cada corte é verificado com FFprobe (resolução, duração, faixas) antes de ser publicado.
+- Um corte com falha não impede os demais (`"3 de 4 cortes gerados; os demais falharam"`); se todos falharem,
+  o projeto termina com `render_failed`.
+- **Regenerar** cria uma nova versão (`render_version`); a anterior continua disponível até a nova ficar pronta
+  e é apagada depois. Se a regeneração falhar, a versão anterior é mantida.
+- **Downloads**: URLs assinadas emitidas só para o dono e só com o corte pronto; expiram em
+  `DOWNLOAD_URL_EXPIRES_SECONDS` (padrão 5 min). Cada emissão gera um evento de auditoria.
+- Projeto com regeneração pendente não pode ser excluído (409) até terminar.
+
+Erros do worker: `render_failed`, `no_candidates`, `analysis_refused`, `analysis_failed`, `analysis_unavailable`,
 `analysis_misconfigured`, `no_speech`, `audio_extraction_failed`, `transcription_failed`, `transcription_unavailable`,
 `transcription_misconfigured`, `stage_unavailable`, `source_missing`, `source_changed`, `storage_error`, `insufficient_disk`,
 `stage_timeout`, `timeout`, `resource_limit`, `worker_lost`, `internal_error` (mensagem genérica ao usuário;

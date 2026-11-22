@@ -228,6 +228,7 @@ class ProcessingJob(Base):
     queue_job_id: Mapped[str | None] = mapped_column(String(100))
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     stage: Mapped[str | None] = mapped_column(String(50))
+    options: Mapped[dict | None] = mapped_column(JSONB)  # ex.: layout/legendas ao regenerar um corte
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_detail: Mapped[str | None] = mapped_column(Text)  # interno; nunca exposto ao usuário final
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

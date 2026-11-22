@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.logging import log_event
-from app.models import ProcessingJob, Project
-from app.models.enums import JobStatus, JobType
+from app.models import Clip, ProcessingJob, Project
+from app.models.enums import ClipStatus, JobStatus, JobType
 from app.models.enums import ProjectStatus as S
 from app.services import audit, queue
 from app.services.projects import transition
@@ -121,9 +121,15 @@ def mark_failed(db: Session, job_id: uuid.UUID, code: str, message: str, detail:
     job.error_code = code
     job.error_detail = detail[:4000] if detail else None
     job.finished_at = datetime.now(UTC)
-    if project is not None and S(project.status) in (S.queued, S.processing):
+    if job.job_type == JobType.process_project.value and project is not None \
+            and S(project.status) in (S.queued, S.processing):
         transition(project, S.failed, message)
         project.error_code = code
+    if job.clip_id is not None:  # regeneração: mantém a versão anterior do corte, se existir
+        clip = db.scalar(select(Clip).where(Clip.id == job.clip_id).with_for_update())
+        if clip is not None:
+            clip.status = ClipStatus.ready.value if clip.video_asset_id else ClipStatus.failed.value
+            clip.error_code = code
     audit.record(db, job.owner_id, "job.failed", "processing_job", job.id, {"code": code})
     db.commit()
 
@@ -153,3 +159,47 @@ def sweep_stale_jobs(db: Session, settings: Settings, now: datetime | None = Non
         mark_failed(db, job_id, "worker_lost",
                     "O processamento foi interrompido inesperadamente. Tente novamente.", detail="stale sweep")
     return len(stale)
+
+
+def active_job_exists(db: Session, project_id: uuid.UUID) -> bool:
+    return db.scalar(select(func.count()).select_from(ProcessingJob).where(
+        ProcessingJob.project_id == project_id, ProcessingJob.status.in_(ACTIVE))) > 0
+
+
+def request_regenerate(db: Session, owner_id: uuid.UUID, clip_id: uuid.UUID, layout: str,
+                       subtitles: bool) -> tuple[ProcessingJob, bool] | None:
+    """Idempotente: com uma regeneração do mesmo corte na fila/em andamento, devolve o job existente."""
+    try:
+        clip = db.scalar(select(Clip).where(Clip.id == clip_id, Clip.owner_id == owner_id).with_for_update(nowait=True))
+    except OperationalError as exc:
+        db.rollback()
+        raise Busy() from exc
+    if clip is None:
+        return None
+    project = db.get(Project, clip.project_id)
+    active = db.scalar(select(ProcessingJob).where(ProcessingJob.clip_id == clip.id,
+                                                   ProcessingJob.status.in_(ACTIVE)))
+    if active is not None:
+        db.rollback()
+        return active, False
+    if S(project.status) != S.completed:
+        db.rollback()
+        raise ProcessRejected("invalid_state", "Só é possível regenerar cortes de projetos concluídos.")
+    n = db.scalar(select(func.count()).select_from(ProcessingJob).where(ProcessingJob.clip_id == clip.id)) or 0
+    job = ProcessingJob(project_id=project.id, owner_id=owner_id, clip_id=clip.id,
+                        job_type=JobType.render_clip.value, status=JobStatus.queued.value,
+                        idempotency_key=f"render_clip:{clip.id}:{n + 1}", stage="queued",
+                        options={"layout": layout, "subtitles": subtitles})
+    db.add(job)
+    clip.status = ClipStatus.pending.value
+    db.flush()
+    job.queue_job_id = str(job.id)
+    audit.record(db, owner_id, "clip.regenerate", "clip", clip.id, {"job_id": str(job.id), "layout": layout})
+    db.commit()
+    try:
+        queue.enqueue_task(queue.RENDER_CLIP_TASK, str(job.id))
+    except queue.QueueUnavailable:
+        mark_failed(db, job.id, "queue_unavailable", "Fila indisponível no momento. Tente novamente.", None)
+        raise
+    db.refresh(job)
+    return job, True

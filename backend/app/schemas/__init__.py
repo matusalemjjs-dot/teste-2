@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -157,6 +158,56 @@ class CandidateOut(BaseModel):
 class CandidateList(BaseModel):
     project_id: uuid.UUID
     items: list[CandidateOut]
+
+
+class ClipOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    title: str
+    justification: str | None
+    score: int
+    start_seconds: float
+    end_seconds: float
+    duration_seconds: float
+    status: str
+    layout: str
+    render_version: int
+    error_code: str | None
+    width: int | None = None
+    height: int | None = None
+    size_bytes: int | None = None
+    thumbnail_url: str | None = Field(None, description="URL temporária da miniatura")
+    has_subtitles: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClipList(BaseModel):
+    project_id: uuid.UUID
+    items: list[ClipOut]
+
+
+class DownloadUrlRequest(BaseModel):
+    disposition: Literal["attachment", "inline"] = Field(
+        "attachment", description="attachment = baixar; inline = reproduzir no navegador")
+    file: Literal["video", "subtitle"] = "video"
+
+
+class DownloadUrlOut(BaseModel):
+    url: str
+    expires_at: datetime
+    filename: str
+
+
+class RegenerateRequest(BaseModel):
+    layout: Literal["center_crop", "blur_background"] = "center_crop"
+    subtitles: bool = True
+
+
+class RegenerateOut(BaseModel):
+    clip: ClipOut
+    job: JobOut
+    created: bool
 
 
 ProjectStatusOut.model_rebuild()

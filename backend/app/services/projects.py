@@ -90,7 +90,9 @@ def cancel_project(db: Session, project: Project) -> Project:
 
 def delete_project(db: Session, storage: Storage, project: Project) -> None:
     """Remove primeiro os arquivos do storage; se falhar, nada é apagado do banco (StorageError)."""
-    if S(project.status) not in DELETABLE:
+    from app.services.jobs import active_job_exists
+
+    if S(project.status) not in DELETABLE or active_job_exists(db, project.id):
         raise InvalidTransition(S(project.status), S.canceled)
     removed = storage.delete_prefix(project_prefix(project.owner_id, project.id))
     audit.record(db, project.owner_id, "project.delete", "project", project.id, {"files_removed": removed})

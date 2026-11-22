@@ -222,6 +222,52 @@ def analyze(ctx: JobContext) -> None:
     ctx.data["selected_candidates"] = [(c.window.start, c.window.end) for c in chosen]
 
 
+def render(ctx: JobContext) -> None:
+    """Renderiza os trechos selecionados. Um corte com falha não impede os demais."""
+    from app.models import Clip, ClipCandidate
+    from app.models.enums import ClipStatus
+    from app.rendering.clips import render_one, reset_project_clips
+    from app.rendering.render import RenderError
+
+    s = ctx.settings
+    reset_project_clips(ctx)
+    with get_sessionmaker()() as db:
+        cands = db.scalars(select(ClipCandidate).where(ClipCandidate.project_id == ctx.project_id,
+                                                       ClipCandidate.selected.is_(True))
+                           .order_by(ClipCandidate.score.desc(), ClipCandidate.start_seconds)).all()
+        clips = [Clip(project_id=ctx.project_id, owner_id=ctx.owner_id, candidate_id=c.id, title=c.title,
+                      justification=c.justification, score=c.score, start_seconds=c.start_seconds,
+                      end_seconds=c.end_seconds, status=ClipStatus.rendering.value, layout=s.render_default_layout,
+                      render_version=1) for c in cands]
+        db.add_all(clips)
+        db.commit()
+        clip_ids = [c.id for c in clips]
+    if not clip_ids:
+        raise PipelineError("no_candidates", "Nenhum trecho selecionado para gerar cortes.")
+
+    ok = 0
+    for n, clip_id in enumerate(clip_ids):
+        ctx.stage_progress(n / len(clip_ids), f"Gerando cortes ({n} de {len(clip_ids)})", min_interval=0)
+        try:
+            render_one(ctx, clip_id, layout=s.render_default_layout, subtitles=s.render_subtitles, version=1)
+            ok += 1
+        except RenderError as exc:
+            with get_sessionmaker()() as db:
+                clip = db.get(Clip, clip_id)
+                if clip is not None:
+                    clip.status, clip.error_code = ClipStatus.failed.value, exc.code
+                    db.commit()
+            import logging
+
+            from app.core.logging import log_event
+            log_event(logging.getLogger("autoclip.render"), "Falha ao renderizar corte", clip_id=str(clip_id),
+                      code=exc.code)
+    if ok == 0:
+        raise PipelineError("render_failed", "Não foi possível gerar nenhum corte. Tente novamente.")
+    ctx.data["final_message"] = (f"{ok} cortes gerados" if ok == len(clip_ids)
+                                 else f"{ok} de {len(clip_ids)} cortes gerados; os demais falharam")
+
+
 def unavailable(label: str) -> Callable[[JobContext], None]:
     def run(ctx: JobContext) -> None:
         raise PipelineError("stage_unavailable",
@@ -235,7 +281,7 @@ def default_pipeline() -> list[Stage]:
         Stage("prepare", "preparação do vídeo", 5, prepare_source),
         Stage("transcribe", "transcrição", 35, transcribe),
         Stage("analyze", "análise inteligente", 20, analyze),
-        Stage("render", "renderização dos cortes", 40, unavailable("renderização")),
+        Stage("render", "renderização dos cortes", 40, render),
     ]
 
 

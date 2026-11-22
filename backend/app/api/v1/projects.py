@@ -10,6 +10,7 @@ from app.models.enums import ProjectStatus
 from app.schemas import (
     CandidateList,
     CandidateOut,
+    ClipList,
     ErrorResponse,
     FinalizeUploadOut,
     JobOut,
@@ -128,6 +129,16 @@ def get_candidates(project_id: uuid.UUID, db: DB, profile: CurrentProfile,
     return CandidateList(project_id=p.id, items=[CandidateOut.model_validate(r) for r in rows])
 
 
+@router.get("/{project_id}/clips", response_model=ClipList, responses=NOT_FOUND, summary="Cortes do projeto")
+def get_clips(project_id: uuid.UUID, db: DB, profile: CurrentProfile, storage: StorageDep,
+              settings: SettingsDep) -> ClipList:
+    from app.services import clips as clips_svc
+
+    p = _load(db, profile, project_id)
+    return ClipList(project_id=p.id, items=[clips_svc.to_out(db, c, storage, settings)
+                                            for c in clips_svc.list_project_clips(db, p.id)])
+
+
 @router.post("/{project_id}/upload-url", response_model=UploadUrlOut, responses=UPLOAD_ERRORS,
              summary="Obter URL assinada para enviar o vídeo",
              description="Retorna um POST pré-assinado (multipart/form-data). Envie todos os `fields` e, por "
@@ -213,7 +224,7 @@ def delete_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile, stora
         svc.delete_project(db, storage, p)
     except svc.InvalidTransition as exc:
         raise HTTPException(status.HTTP_409_CONFLICT,
-                            "Projeto em processamento. Cancele antes de excluir.") from exc
+                            "Projeto em processamento. Cancele ou aguarde antes de excluir.") from exc
     except StorageError as exc:
         db.rollback()
         raise _unavailable() from exc

@@ -249,9 +249,8 @@ def test_pipeline_gera_candidatos_validos(client, alice, long_speech_video, whis
     usar_scorer(monkeypatch, fake)
     pid = projeto_pronto(client, alice, long_speech_video)
     st = rodar(client, alice, pid)
-    # renderização ainda não existe: termina honestamente em stage_unavailable, com os candidatos salvos
-    assert st["status"] == "failed" and st["error_code"] == "stage_unavailable", st
-    assert st["job"]["stage"] == "render"
+    assert st["status"] == "completed", st
+    assert st["job"]["stage"] == "done"
     r = client.get(f"/api/v1/projects/{pid}/candidates", headers=alice.headers).json()
     items = r["items"]
     sel = [c for c in items if c["selected"]]
@@ -271,21 +270,39 @@ def test_pipeline_gera_candidatos_validos(client, alice, long_speech_video, whis
     assert len(only["items"]) == len(sel)
     # consumo registrado uma vez para o job
     with get_sessionmaker()() as db:
-        led = db.scalars(select(UsageLedger).where(UsageLedger.project_id == uuid.UUID(pid))).all()
-    assert len(led) == 1 and led[0].kind == "llm_tokens" and int(led[0].quantity) == 1200 * fake.calls
+        led = db.scalars(select(UsageLedger).where(UsageLedger.project_id == uuid.UUID(pid),
+                                                   UsageLedger.kind == "llm_tokens")).all()
+    assert len(led) == 1 and int(led[0].quantity) == 1200 * fake.calls
     assert float(led[0].estimated_cost_usd) == pytest.approx(fake.calls * (1000 * 4 + 200 * 20) / 1e6)
 
 
 def test_reprocessar_substitui_candidatos(client, alice, long_speech_video, whisper_ready, monkeypatch):
+    from app.pipeline import stages
+    from app.pipeline.context import PipelineError
+
     usar_scorer(monkeypatch, FakeScorer())
+    real_render = stages.render
+
+    def falha(ctx):
+        raise PipelineError("render_failed", "Falha simulada na renderização.")
+
+    monkeypatch.setattr(stages, "render", falha)
     pid = projeto_pronto(client, alice, long_speech_video)
-    rodar(client, alice, pid)
+    assert rodar(client, alice, pid)["error_code"] == "render_failed"
     n = len(candidatos(pid))
-    rodar(client, alice, pid)  # stage_unavailable não consome tentativa
-    assert len(candidatos(pid)) == n
+    monkeypatch.setattr(stages, "render", real_render)
+    assert rodar(client, alice, pid)["status"] == "completed"
+    # a transcrição é refeita e pode variar levemente; o que importa é que os candidatos foram SUBSTITUÍDOS
+    from app.models import ProcessingJob
+    with get_sessionmaker()() as db:
+        last = db.scalar(select(ProcessingJob.started_at).where(ProcessingJob.project_id == uuid.UUID(pid))
+                         .order_by(ProcessingJob.created_at.desc()).limit(1))
+    cands = candidatos(pid)
+    assert n and cands and all(c.created_at >= last for c in cands)
+    assert len({(c.start_seconds, c.end_seconds) for c in cands}) == len(cands)
     with get_sessionmaker()() as db:
         assert db.scalar(select(func.count()).select_from(UsageLedger)
-                         .where(UsageLedger.project_id == uuid.UUID(pid))) == 2  # um por job
+                         .where(UsageLedger.project_id == uuid.UUID(pid), UsageLedger.kind == "llm_tokens")) == 2
 
 
 def test_isolamento_candidatos(client, alice, bob, long_speech_video):
