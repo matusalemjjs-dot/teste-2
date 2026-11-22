@@ -1,23 +1,60 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import JSONResponse
 
 from app.api.deps import DB, CurrentProfile
+from app.core.config import Settings, get_settings
 from app.models.enums import ProjectStatus
-from app.schemas import ErrorResponse, ProjectCreate, ProjectList, ProjectOut, ProjectStatusOut
+from app.schemas import (
+    ErrorResponse,
+    FinalizeUploadOut,
+    MediaAssetOut,
+    ProjectCreate,
+    ProjectList,
+    ProjectOut,
+    ProjectStatusOut,
+    UploadErrorResponse,
+    UploadUrlOut,
+    UploadUrlRequest,
+)
 from app.services import projects as svc
+from app.services import uploads
+from app.services.media_probe import ProbeUnavailable
+from app.services.storage import Storage, StorageError, get_storage
 
 router = APIRouter(prefix="/projects", tags=["projetos"])
 
 NOT_FOUND = {404: {"model": ErrorResponse, "description": "Projeto não encontrado"}}
+UPLOAD_ERRORS = {**NOT_FOUND, 409: {"model": UploadErrorResponse}, 422: {"model": UploadErrorResponse},
+                 503: {"model": ErrorResponse}}
+StorageDep = Annotated[Storage, Depends(get_storage)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def _not_found() -> HTTPException:
+    return HTTPException(status.HTTP_404_NOT_FOUND, "Projeto não encontrado")
 
 
 def _load(db, profile, project_id: uuid.UUID):
     project = svc.get_owned(db, profile.id, project_id)
     if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Projeto não encontrado")
+        raise _not_found()
     return project
+
+
+def _upload_error(exc: uploads.UploadRejected) -> JSONResponse:
+    return JSONResponse(status_code=exc.http_status, content={"detail": exc.message, "code": exc.code})
+
+
+def _unavailable() -> HTTPException:
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                         "Serviço de arquivos indisponível no momento. Tente novamente em instantes.")
+
+
+def _busy() -> HTTPException:
+    return HTTPException(status.HTTP_409_CONFLICT, "Outra operação está em andamento neste projeto. Aguarde.")
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED, summary="Criar projeto")
@@ -50,6 +87,48 @@ def get_status(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Projec
                             error_code=p.error_code, updated_at=p.updated_at)
 
 
+@router.post("/{project_id}/upload-url", response_model=UploadUrlOut, responses=UPLOAD_ERRORS,
+             summary="Obter URL assinada para enviar o vídeo",
+             description="Retorna um POST pré-assinado (multipart/form-data). Envie todos os `fields` e, por "
+                         "último, o arquivo no campo `file`. Depois chame `finalize-upload`.")
+def upload_url(project_id: uuid.UUID, body: UploadUrlRequest, db: DB, profile: CurrentProfile,
+               settings: SettingsDep, storage: StorageDep):
+    try:
+        ticket = uploads.request_upload(db, settings, storage, profile.id, project_id, body.filename,
+                                        body.content_type, body.size_bytes)
+    except uploads.UploadRejected as exc:
+        return _upload_error(exc)
+    except uploads.Busy as exc:
+        raise _busy() from exc
+    except StorageError as exc:
+        raise _unavailable() from exc
+    if ticket is None:
+        raise _not_found()
+    return UploadUrlOut(asset_id=ticket.asset.id, url=ticket.url, fields=ticket.fields,
+                        expires_at=ticket.expires_at, max_bytes=ticket.max_bytes)
+
+
+@router.post("/{project_id}/finalize-upload", response_model=FinalizeUploadOut, responses=UPLOAD_ERRORS,
+             summary="Confirmar o envio e validar o vídeo",
+             description="Valida tipo real, integridade e duração com FFprobe. Idempotente: repetir a chamada "
+                         "após o sucesso devolve o mesmo resultado (`already_finalized=true`).")
+def finalize_upload(project_id: uuid.UUID, db: DB, profile: CurrentProfile, settings: SettingsDep,
+                    storage: StorageDep):
+    try:
+        result = uploads.finalize_upload(db, settings, storage, profile.id, project_id)
+    except uploads.UploadRejected as exc:
+        return _upload_error(exc)
+    except uploads.Busy as exc:
+        raise _busy() from exc
+    except ProbeUnavailable as exc:
+        raise _unavailable() from exc
+    if result is None:
+        raise _not_found()
+    return FinalizeUploadOut(project=ProjectOut.model_validate(result.project),
+                             asset=MediaAssetOut.model_validate(result.asset),
+                             already_finalized=result.already_finalized)
+
+
 @router.post("/{project_id}/cancel", response_model=ProjectOut,
              responses={**NOT_FOUND, 409: {"model": ErrorResponse}}, summary="Cancelar processamento")
 def cancel_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> ProjectOut:
@@ -62,12 +141,16 @@ def cancel_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Pr
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT,
-               responses={**NOT_FOUND, 409: {"model": ErrorResponse}}, summary="Excluir projeto")
-def delete_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile) -> Response:
+               responses={**NOT_FOUND, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+               summary="Excluir projeto e seus arquivos")
+def delete_project(project_id: uuid.UUID, db: DB, profile: CurrentProfile, storage: StorageDep) -> Response:
     p = _load(db, profile, project_id)
     try:
-        svc.delete_project(db, p)
+        svc.delete_project(db, storage, p)
     except svc.InvalidTransition as exc:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Projeto em processamento. Cancele antes de excluir.") from exc
+    except StorageError as exc:
+        db.rollback()
+        raise _unavailable() from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

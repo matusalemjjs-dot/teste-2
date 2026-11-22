@@ -21,3 +21,9 @@ def test_formatter_emite_json(caplog):
     assert data["access_token"] == "[REDACTED]"
     assert "eyJa" not in data["msg"]
     assert callable(log_event)
+
+
+def test_redact_assinatura_de_url():
+    url = "http://s3/b/k?X-Amz-Credential=AKIA%2F123&X-Amz-Signature=abcdef0123&X-Amz-Expires=60"
+    out = redact(url)
+    assert "abcdef0123" not in out and "AKIA" not in out and "X-Amz-Expires=60" in out

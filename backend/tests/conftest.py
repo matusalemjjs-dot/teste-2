@@ -8,6 +8,24 @@ os.environ["SUPABASE_URL"] = "https://exemplo-teste.supabase.co"
 os.environ["SUPABASE_JWT_SECRET"] = "segredo-de-teste-apenas-local-com-32-bytes-ou-mais"
 os.environ["LOG_LEVEL"] = "WARNING"
 
+import socket  # noqa: E402
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+S3_PORT = _free_port()
+os.environ["S3_ENDPOINT_URL"] = f"http://127.0.0.1:{S3_PORT}"
+os.environ["S3_PUBLIC_ENDPOINT_URL"] = f"http://127.0.0.1:{S3_PORT}"
+os.environ["S3_BUCKET"] = "autoclip-test"
+os.environ["S3_ACCESS_KEY_ID"] = "teste"
+os.environ["S3_SECRET_ACCESS_KEY"] = "teste-secreto"
+# O emulador S3 é local: não passar pelo proxy HTTP do ambiente (boto3 e ffmpeg respeitam NO_PROXY).
+for var in ("NO_PROXY", "no_proxy"):
+    os.environ[var] = ",".join(filter(None, [os.environ.get(var), "127.0.0.1", "localhost"]))
+
 import jwt  # noqa: E402
 import pytest  # noqa: E402
 from alembic.config import Config  # noqa: E402
@@ -36,9 +54,24 @@ def migrated_db():
     yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def s3_server():
+    from moto.server import ThreadedMotoServer
+
+    server = ThreadedMotoServer(ip_address="127.0.0.1", port=S3_PORT, verbose=False)
+    server.start()
+    from app.services.storage import get_storage
+    storage = get_storage()
+    storage._internal.create_bucket(Bucket=storage.bucket)
+    yield server
+    server.stop()
+
+
 @pytest.fixture(autouse=True)
-def clean_tables():
+def clean_tables(s3_server):
     yield
+    from app.services.storage import get_storage
+    get_storage().delete_prefix("")
     with get_engine().begin() as conn:
         conn.execute(text(
             "TRUNCATE audit_events, usage_ledger, processing_jobs, clips, clip_candidates, "

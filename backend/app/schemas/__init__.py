@@ -67,3 +67,42 @@ class ProjectStatusOut(BaseModel):
     status_message: str | None
     error_code: str | None
     updated_at: datetime
+
+
+class UploadUrlRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255, description="Nome original (apenas para validação)")
+    content_type: str = Field(max_length=100, examples=["video/mp4"])
+    size_bytes: int = Field(description="Tamanho do arquivo em bytes")
+
+
+class UploadUrlOut(BaseModel):
+    asset_id: uuid.UUID
+    method: str = "POST"
+    url: str
+    fields: dict[str, str] = Field(description="Campos a enviar no formulário multipart, antes do arquivo ('file')")
+    expires_at: datetime
+    max_bytes: int
+
+
+class MediaAssetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    kind: str
+    status: str
+    content_type: str | None
+    size_bytes: int | None
+    duration_seconds: float | None
+    width: int | None
+    height: int | None
+    created_at: datetime
+
+
+class FinalizeUploadOut(BaseModel):
+    project: ProjectOut
+    asset: MediaAssetOut
+    already_finalized: bool
+
+
+class UploadErrorResponse(BaseModel):
+    detail: str
+    code: str

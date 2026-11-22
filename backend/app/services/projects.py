@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models import Project
 from app.models.enums import ProjectStatus as S
 from app.services import audit
+from app.services.storage import Storage, project_prefix
 
 # Transições permitidas. Estados finais: completed, failed, canceled (failed pode ser reenfileirado).
 TRANSITIONS: dict[S, set[S]] = {
@@ -83,9 +84,11 @@ def cancel_project(db: Session, project: Project) -> Project:
     return project
 
 
-def delete_project(db: Session, project: Project) -> None:
+def delete_project(db: Session, storage: Storage, project: Project) -> None:
+    """Remove primeiro os arquivos do storage; se falhar, nada é apagado do banco (StorageError)."""
     if S(project.status) not in DELETABLE:
         raise InvalidTransition(S(project.status), S.canceled)
-    audit.record(db, project.owner_id, "project.delete", "project", project.id)
+    removed = storage.delete_prefix(project_prefix(project.owner_id, project.id))
+    audit.record(db, project.owner_id, "project.delete", "project", project.id, {"files_removed": removed})
     db.delete(project)
     db.commit()

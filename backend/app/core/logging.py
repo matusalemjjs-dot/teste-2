@@ -9,6 +9,10 @@ from datetime import UTC, datetime
 SENSITIVE_KEYS = {"authorization", "token", "access_token", "refresh_token", "password", "secret", "api_key"}
 _BEARER_RE = re.compile(r"(?i)bearer\s+[a-z0-9\-_\.=]+")
 _JWT_RE = re.compile(r"eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+")
+# Assinaturas de URLs pré-assinadas S3 (SigV4/SigV2)
+_SIG_RE = re.compile(
+    r"(?i)((?:X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|Signature|AWSAccessKeyId)=)[^&\s\"']+"
+)
 
 
 def redact(value):
@@ -17,7 +21,9 @@ def redact(value):
     if isinstance(value, list | tuple):
         return [redact(v) for v in value]
     if isinstance(value, str):
-        return _JWT_RE.sub("[REDACTED]", _BEARER_RE.sub("Bearer [REDACTED]", value))
+        value = _BEARER_RE.sub("Bearer [REDACTED]", value)
+        value = _SIG_RE.sub(r"\1[REDACTED]", value)
+        return _JWT_RE.sub("[REDACTED]", value)
     return value
 
 

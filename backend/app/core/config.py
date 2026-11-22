@@ -25,7 +25,27 @@ class Settings(BaseSettings):
 
     # Limites de upload (configuráveis)
     max_upload_mb: int = 2048
-    max_video_minutes: int = 60
+    max_video_minutes: float = 60
+    min_video_seconds: float = 15
+    upload_url_expires_seconds: int = 900
+
+    # Object storage privado compatível com S3 (AWS S3, MinIO, Cloudflare R2...)
+    s3_bucket: str = "autoclip-media"
+    s3_region: str = "us-east-1"
+    s3_endpoint_url: str | None = None  # usado pelo backend/worker; vazio = AWS
+    s3_public_endpoint_url: str | None = None  # usado nas URLs assinadas entregues ao navegador
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    s3_force_path_style: bool = True
+
+    # FFmpeg / FFprobe
+    ffprobe_path: str = "ffprobe"
+    ffmpeg_path: str = "ffmpeg"
+    probe_timeout_seconds: int = 60
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
 
     @property
     def jwks_url(self) -> str | None:
